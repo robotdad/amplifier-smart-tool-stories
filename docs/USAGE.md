@@ -8,7 +8,8 @@ requirements; this release does not claim full conformance to all of them.
 ## Review in an MCP host
 
 The optional `[mcp]` extra provides `stories-mcp --storage /explicit/store` and a
-self-contained MCP App. See [portable review and its exact capability scope](MCP.md).
+self-contained MCP App. Story results identify one reusable dashboard per retained
+story without changing revision focus or execution authority. See [portable review and its exact capability scope](MCP.md).
 It uses the same retained revisions, drafts, comments and bounded grants as the
 library. Opening does not start model work; `--model-env` and a grant are both
 required for generation. Native human acceptance is deliberately not exposed.

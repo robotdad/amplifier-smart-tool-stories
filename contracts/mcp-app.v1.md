@@ -44,3 +44,9 @@ participant. The App follows explicit view changes and restores them on reopen.
 Navigation MUST NOT imply direction selection, acceptance or model authority.
 Browser scrolling, media playback, grant form drafts and download handling remain
 local presentation state; underlying domain actions are public capabilities.
+
+Story-scoped MCP results include optional `_meta["amplifier/presentationId"]`
+metadata with value `stories:story:<story_id>`. Hosts can reuse the same dashboard
+across review methods while retaining exact revision links. Independent stories
+have distinct identities; global status and failed calls do not invent one. This
+metadata does not open a viewer, select a revision or grant execution authority.

@@ -2,6 +2,7 @@
 
 import base64
 import importlib.util
+import json
 import os
 import subprocess
 import sys
@@ -17,6 +18,7 @@ from mcp.server.apps import APP_MIME_TYPE, EXTENSION_ID
 from test_stories import SOURCE
 
 from amplifier_smart_tool_stories import Stories
+from amplifier_smart_tool_stories.errors import StoriesError
 from amplifier_smart_tool_stories.mcp import CHUNK_BYTES, UI_URI, create_server
 
 APPS = advertise(EXTENSION_ID, {"mimeTypes": [APP_MIME_TYPE]})
@@ -381,5 +383,93 @@ def test_mcp_user_comments_consume_grants_only_with_injected_execution(tmp_path)
             assert value(await client.call_tool("stories_respond", response)) == reply
             assert len(calls) == 2
             assert api.get_story(ids["story_id"])["feedback_grant"]["used"] == 2
+
+    anyio.run(run)
+
+
+def test_cancel_operation_keeps_dashboard_identity_without_changing_payload(tmp_path):
+    async def run():
+        ids = fixture.seed(tmp_path)
+        api = Stories(tmp_path, execution="queued")
+        sid = ids["story_id"]
+        api.grant_feedback(sid, {}, "cancel-grant")
+        receipt = api.add_comment(sid, ids["revision_id"], "Queued edit", "cancel-note")
+        args = {"operation_id": receipt["operation_id"]}
+        assert api.get_operation(args["operation_id"])["state"] == "queued"
+        async with Client(create_server(api), extensions=[APPS]) as client:
+            before = await client.call_tool("stories_get_operation", args)
+            assert value(before)["state"] == "queued"
+            cancelled = await client.call_tool("stories_cancel_operation", args)
+            assert not cancelled.is_error, cancelled.content
+            assert cancelled.meta == before.meta
+            assert cancelled.meta["amplifier/presentationId"] == "stories:story:" + sid
+            assert cancelled.structured_content == {
+                "operation": "cancel_operation",
+                "story_id": None,
+                "result": {
+                    "status": "cancelled",
+                    "cleanup": "complete",
+                    "notice": "Late commits are prohibited; provider spending already in flight may occur.",
+                },
+            }
+            repeated = await client.call_tool("stories_cancel_operation", args)
+            assert repeated.structured_content == cancelled.structured_content
+            assert repeated.meta == cancelled.meta
+            assert json.loads(cancelled.content[0].text) == cancelled.structured_content
+            after = await client.call_tool("stories_get_operation", args)
+            assert value(after)["state"] == "cancelled"
+            assert after.meta == cancelled.meta
+            for name in ("stories_cancel_operation", "stories_get_operation"):
+                missing = await client.call_tool(name, {"operation_id": "missing"})
+                assert missing.is_error
+                assert not (missing.meta or {}).get("amplifier/presentationId")
+
+    anyio.run(run)
+
+
+def test_cancel_metadata_lookup_failure_preserves_success(tmp_path, monkeypatch):
+    async def run():
+        ids = fixture.seed(tmp_path)
+        api = Stories(tmp_path, execution="queued")
+        sid = ids["story_id"]
+        api.grant_feedback(sid, {}, "cancel-grant")
+        receipt = api.add_comment(sid, ids["revision_id"], "Queued edit", "cancel-note")
+        get_operation = api.get_operation
+
+        def unavailable(operation_id):
+            raise StoriesError("not_found", "Retained operation unavailable.")
+
+        monkeypatch.setattr(api, "get_operation", unavailable)
+        async with Client(create_server(api), extensions=[APPS]) as client:
+            result = await client.call_tool(
+                "stories_cancel_operation", {"operation_id": receipt["operation_id"]}
+            )
+            assert value(result)["status"] == "cancelled"
+            assert not (result.meta or {}).get("amplifier/presentationId")
+            assert get_operation(receipt["operation_id"])["state"] == "cancelled"
+
+    anyio.run(run)
+
+
+def test_explicit_dashboard_identity_tracks_story_across_review_methods(tmp_path):
+    async def run():
+        ids = fixture.seed(tmp_path)
+        api = Stories(tmp_path)
+        async with Client(create_server(api), extensions=[APPS]) as client:
+            for name, args in [
+                ("stories_get_story", {"story_id": ids["story_id"]}),
+                ("stories_get_review_view", {"story_id": ids["story_id"]}),
+            ]:
+                result = await client.call_tool(name, args)
+                assert not result.is_error, result.content
+                assert result.meta["amplifier/presentationId"] == "stories:story:" + ids["story_id"]
+            status = await client.call_tool("stories_status", {})
+            assert not (status.meta or {}).get("amplifier/presentationId")
+            rejected = await client.call_tool("stories_get_story", {"story_id": "missing"})
+            assert rejected.is_error and not (rejected.meta or {}).get("amplifier/presentationId")
+        other = fixture.seed(tmp_path / "independent")
+        async with Client(create_server(Stories(tmp_path / "independent")), extensions=[APPS]) as client:
+            result = await client.call_tool("stories_get_story", {"story_id": other["story_id"]})
+            assert result.meta["amplifier/presentationId"] != "stories:story:" + ids["story_id"]
 
     anyio.run(run)

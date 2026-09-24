@@ -120,3 +120,9 @@ Library/CLI retain their user-submission default for compatibility; the portable
 MCP adapter defaults both `add_comment` and `respond` to agent notes, which never
 consume feedback authority. User attribution is a caller assertion, not proof of
 human identity.
+
+Story-scoped MCP results include optional `_meta["amplifier/presentationId"]`
+metadata with value `stories:story:<story_id>`. Hosts can reuse the same dashboard
+across review methods while retaining exact revision links. Independent stories
+have distinct identities; global status and failed calls do not invent one. This
+metadata does not open a viewer, select a revision or grant execution authority.

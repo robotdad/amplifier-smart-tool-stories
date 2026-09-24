@@ -585,6 +585,9 @@ is a provisional narration/visual budget, not a promise of produced video durati
 
 ## Optional MCP / MCP Apps
 
+Story-scoped results identify one retained dashboard across review methods;
+independent stories remain separate. The optional metadata grants no authority.
+
 Install `amplifier-smart-tool-stories[mcp]` from this Git repository and run
 `stories-mcp --storage /explicit/store`. Add `--model-env` only with authority to
 use configured providers; generation still requires a bounded grant. Tool schemas

@@ -247,9 +247,22 @@ def create_server(client):
                     )
                 result = await anyio.to_thread.run_sync(lambda: method(**arguments))
                 value = payload_result(name, arguments, result)
+                presentation_story_id = value.get("story_id")
+                if name == "cancel_operation":
+                    try:
+                        operation = await anyio.to_thread.run_sync(
+                            lambda: client.get_operation(arguments["operation_id"])
+                        )
+                        presentation_story_id = operation.get("story_id")
+                    except StoriesError:
+                        # Optional metadata must not turn a completed cancellation into an error.
+                        pass
                 return CallToolResult(
                     content=[TextContent(type="text", text=json.dumps(value, ensure_ascii=False))],
                     structuredContent=value,
+                    _meta={"amplifier/presentationId": "stories:story:" + presentation_story_id}
+                    if isinstance(presentation_story_id, str) and 0 < len(presentation_story_id) <= 185
+                    else None,
                 )
             except StoriesError as error:
                 value = error.public()

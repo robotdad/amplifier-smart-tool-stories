@@ -13,7 +13,8 @@ is not a spending grant. Comments default to agent notes; author=user is only a
 caller-reported human submission. Without model access, user comments are retained
 awaiting access without consuming a grant or starting work. Native human acceptance is omitted. Media and
 exports use scoped resources/read chunks; export transfer snapshots last until
-this server stops. Closing a view does not cancel work. No MCP sampling, Tasks,
+this server stops. Story results identify one retained dashboard across review methods;
+independent stories stay separate. Closing a view does not cancel work. No MCP sampling, Tasks,
 elicitation, provider login, runtime preparation or video export is exposed."""
 
 # Examples are valid JSON inputs; retained identities must come from earlier receipts.
