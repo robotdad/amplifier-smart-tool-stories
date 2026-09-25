@@ -91,10 +91,11 @@ async def synthesize(text, config, timeout):
             for p in c.content.parts or []
             if p.inline_data
         ]
+        # MIME types and parameters are case-insensitive (RFC 2045); Gemini
+        # currently returns e.g. "audio/l16; rate=24000; channels=1".
+        mime = "".join((parts[0].mime_type or "").lower().split()) if len(parts) == 1 else ""
         require(
-            len(parts) == 1
-            and parts[0].mime_type.startswith("audio/L16")
-            and "rate=24000" in parts[0].mime_type,
+            mime.startswith("audio/l16") and "rate=24000" in mime.split(";"),
             "Gemini returned no supported 24 kHz PCM audio.",
             "invalid_audio",
         )
