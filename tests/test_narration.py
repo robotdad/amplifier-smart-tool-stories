@@ -312,6 +312,50 @@ def test_direct_adapters_bound_requests_and_disable_retries(monkeypatch, provide
         assert captured["request"]["contents"].endswith("Exact notes.")
 
 
+@pytest.mark.parametrize(
+    ("mime_type", "accepted"),
+    [
+        ("audio/L16;codec=pcm;rate=24000", True),
+        # Observed from gemini-3.1-flash-tts-preview via google-genai 2.25.0.
+        ("audio/l16; rate=24000; channels=1", True),
+        ("audio/wav; rate=24000", False),
+        ("audio/l16; rate=16000", False),
+    ],
+)
+def test_gemini_pcm_mime_type_is_case_insensitive(monkeypatch, mime_type, accepted):
+    from types import SimpleNamespace
+
+    from amplifier_smart_tool_stories.speech import DEFAULTS, synthesize
+
+    pcm = b"\0\0" * 100
+
+    async def request(**kwargs):
+        part = SimpleNamespace(inline_data=SimpleNamespace(mime_type=mime_type, data=pcm))
+        return SimpleNamespace(candidates=[SimpleNamespace(content=SimpleNamespace(parts=[part]))])
+
+    class Client:
+        def __init__(self, **kwargs):
+            self.aio = self
+            self.models = SimpleNamespace(generate_content=request)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+    monkeypatch.setenv("GOOGLE_API_KEY", "test-only")
+    monkeypatch.setattr("google.genai.Client", Client)
+    call = synthesize("Exact notes.", {"provider": "gemini", **DEFAULTS["gemini"], "instructions": ""}, 7)
+    if accepted:
+        with wave.open(io.BytesIO(asyncio.run(call))) as w:
+            assert w.getnframes() == 100 and w.getframerate() == 24000
+    else:
+        with pytest.raises(StoriesError) as error:
+            asyncio.run(call)
+        assert error.value.code == "invalid_audio"
+
+
 def test_parallel_bound_out_of_order_partial_and_duplicate_inputs(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test")
     api = Stories(tmp_path / "parallel", model_env=True, execution="in_process")
