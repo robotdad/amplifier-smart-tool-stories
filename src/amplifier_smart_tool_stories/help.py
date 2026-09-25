@@ -11,14 +11,18 @@ MCP_GUIDANCE = """Use one explicit retained store. Read shared drafts and revisi
 Tool schemas expose bounded grants; --model-env authorizes environment access but
 is not a spending grant. Comments default to agent notes; author=user is only a
 caller-reported human submission. Without model access, user comments are retained
-awaiting access without consuming a grant or starting work. Native human acceptance is omitted. Media and
+awaiting access without consuming a grant or starting work. Acceptance is caller-reported, not authenticated. Media and
 exports use scoped resources/read chunks; export transfer snapshots last until
 this server stops. Story results identify one retained dashboard across review methods;
 independent stories stay separate. Closing a view does not cancel work. No MCP sampling, Tasks,
-elicitation, provider login, runtime preparation or video export is exposed."""
+elicitation or caller wake-up is implied. Setup/login/discovery use model_env-gated
+start-provider-job and get-provider-job, with durable exact-retry receipts.
+get-video-export prepares bounded bytes from retained presentation narration only."""
 
 # Examples are valid JSON inputs; retained identities must come from earlier receipts.
 VALUES = {
+    "kind": "test",
+    "job_id": "SETUP_JOB_ID",
     "expected_version": 0,
     "idea": "Explain a fictional team's handoff as a short visual sequence.",
     "brief": {"intent": "Explain the handoff", "assumptions": [], "open_questions": []},
@@ -84,6 +88,26 @@ VALUES = {
 }
 
 GUIDANCE = {
+    "start_provider_job": (
+        "Explicitly prepare runtime modules, sign in, discover models or test a provider.",
+        "Durable job_id receipt; poll get-provider-job without replaying setup.",
+        "model_env required. kind is prepare, login, models or test. Preparation can install modules; login writes native credential caches; test sends one small model request. Exact request_id retries never relaunch work. The 310-second execution deadline requests cleanup; timing_out/cancelling retain exclusion until cleanup settles or the kernel ownership lease proves owner loss, not merely PID reuse. Settings remain instance-scoped; testing does not apply configuration.",
+    ),
+    "get_provider_job": (
+        "Observe an explicit provider setup job, or the latest job when job_id is omitted.",
+        "Status, bounded progress messages and redacted result/error.",
+        "Provider-free. Expired ownership fails rather than replaying setup.",
+    ),
+    "cancel_provider_job": (
+        "Stop an identified provider setup job.",
+        "Retained terminal status; the worker cancels its owned provider resources.",
+        "Does not undo prior installation or credential changes. No automatic retry.",
+    ),
+    "get_video_export": (
+        "Prepare a path-free download from retained presentation narration.",
+        "Base64 bytes and MIME metadata; MCP returns hash-checked resource chunks instead.",
+        "No synthesis. narration_id and exact story/revision required. Embedded MP4 or separate ZIP; 128 MiB transfer limit. Larger output uses export-video. Storyboard-to-video is unsupported.",
+    ),
     "get_review_view": (
         "Read shared review navigation.",
         "Versioned focus, slide, comparison and panel state.",
@@ -278,8 +302,8 @@ GUIDANCE = {
     ),
     "save_draft": (
         "Retain unfinished feedback without submitting it.",
-        "saved status and sequence, or stale status and existing draft.",
-        "Choose draft_id per editor/session; increase sequence monotonically. No model use. Anchor syntax is described by add-comment --help.",
+        "saved status, sequence and version; stale legacy sequence or draft_conflict never replaces newer text.",
+        "Pass expected_version from the observed get-story draft (zero if absent). Content CAS rejects stale edits regardless of client clocks; exact retries return the accepted version. Sequence-only legacy writes remain supported for legacy drafts only, and cannot bypass CAS once enabled. No model use. Anchor syntax is described by add-comment --help.",
     ),
     "read_changes": (
         "Observe updates since the last read.",
@@ -329,7 +353,7 @@ GUIDANCE = {
     "prepare_runtime": (
         "Explicitly install the selected provider runtime before model use.",
         "Runtime preparation receipt.",
-        "May use network and install packages into native caches. Does not generate a story or sign in.",
+        "Requires model_env. May use network and install packages into native caches. Does not generate a story or sign in.",
     ),
     "test_provider": (
         "Verify access with one small live model request.",
@@ -360,10 +384,12 @@ GUIDANCE = {
 
 
 FIELD_HELP = {
+    "job_id": "Retained provider setup identity; never a PID or filesystem path",
+    "native_context": "Bounded inert shared frontend context: document view, drafts, pending exact intents and narration edits; never execution authority",
     "source": "Speech source: presentation (default, notes/script) or storyboard_panels (exact retained panel narration; no notes/script_id)",
     "panel_id": "Stable panel ID from storyboard narration; mutually exclusive with slide",
     "view_id": "Shared review identity; default shared",
-    "expected_version": "Exact version from get-review-view; stale changes conflict",
+    "expected_version": "Exact observed review-view or draft version (zero for absent drafts); stale changes conflict",
     "comparison_revision": "Exact comparison revision, or empty string to clear",
     "panel_open": "Whether the shared review panel is visible",
     "export_format": "Retained export format choice: html, zip, pdf or docx",
@@ -418,7 +444,7 @@ FIELD_HELP = {
     "draft_id": "Unique editor/session draft identity",
     "sequence": "Nonnegative increasing draft version",
     "after": "Previous event cursor, or zero",
-    "kind": "presentation or document",
+    "kind": "presentation or document for generation; prepare/test/models/login for provider setup",
     "format": "html or zip for presentations/storyboards; storyboard ZIP includes structured content; html, pdf or docx for documents",
     "output_path": "New destination file in an existing directory",
     "provider": "Provider alias; null uses current selection where accepted",
@@ -480,6 +506,10 @@ def skill_help(name=None):
                 "test_provider",
                 "provider_models",
                 "provider_login",
+                "start_provider_job",
+                "prepare_runtime",
+                "prepare_narration",
+                "generate_narration",
             }
             else ""
         )

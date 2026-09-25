@@ -2,6 +2,10 @@
 (() => {
   const root = document.querySelector(".stories-document");
   if (!root) return;
+  // Storyboards are responsive articles, not fixed-width document paper. Capture
+  // their authored cap before the preview overrides max-width.
+  const storyboard = root.classList.contains("stories-storyboard");
+  const storyboardWidth = parseFloat(getComputedStyle(root).maxWidth);
   const blocks = [...root.children];
   let mode = "continuous",
     zoom = 1,
@@ -32,11 +36,20 @@
     const r = n.getBoundingClientRect();
     scrollBy(0, r.top + r.height * a.fraction - 85);
   }
+  const availableWidth = () => document.documentElement.clientWidth - 40;
+  const paperWidth = () =>
+    storyboard && mode === "continuous"
+      ? Math.min(storyboardWidth, availableWidth())
+      : 816;
   function metrics() {
-    const w = 816 * zoom;
+    const width = paperWidth();
+    const w = width * zoom;
+    // Explicit width prevents body min-width/zoom from feeding back into an
+    // auto-sized article. Position and scroll extent use that same actual paper.
+    root.style.width = width + "px";
     root.style.zoom = zoom;
-    root.style.left = Math.max(0, (innerWidth - 40 - w) / 2) / zoom + "px";
-    document.body.style.minWidth = Math.max(innerWidth, w + 40) + "px";
+    root.style.left = Math.max(0, (availableWidth() - w) / 2) / zoom + "px";
+    document.body.style.minWidth = Math.max(document.documentElement.clientWidth, w + 40) + "px";
   }
   function layout(next = {}) {
     const passage = next.passage || reading();
@@ -46,7 +59,7 @@
       fit = false;
     }
     if (next.fit !== undefined) fit = next.fit;
-    if (fit) zoom = Math.min(2, Math.max(0.35, (innerWidth - 40) / 816));
+    if (fit) zoom = Math.min(2, Math.max(0.35, availableWidth() / paperWidth()));
     zoom = Math.min(2, Math.max(0.35, zoom));
     root.replaceChildren(...blocks);
     root.classList.toggle("paginated", mode === "paginated");

@@ -96,6 +96,7 @@
       <p id="mediaDetails" style="white-space:pre-line"></p>
       <button id="export">Export this version</button>
       <button id="narrationOpen">Narration &amp; video</button>
+      <p id="narrationLimit" role="status" hidden></p>
       <button id="acceptRevision">Accept this revision</button>
       <p id="acceptanceStatus" role="status"></p>
       <h3>Sources & checks</h3>
@@ -156,8 +157,6 @@
       </p>
     </dialog>
     <div id="error" role="alert" hidden></div>
-    <script src="/app.js"></script>
-    <script src="/comparison.js"></script>
     <dialog id="narrationDialog" aria-labelledby="narrationHeading">
       <div class="row"><h2 id="narrationHeading">Narration &amp; video</h2><button id="narrationClose">Close</button></div>
       <p id="narrationRevision"></p>
@@ -192,6 +191,9 @@
       <button id="speechExport" disabled>Export using retained narration</button>
       <p id="speechExportStatus" role="status"></p>
     </dialog>
+    <script src="/http-transport.js"></script>
+    <script src="/app.js"></script>
+    <script src="/comparison.js"></script>
     <script src="/provider-settings.js"></script>
     <script src="/narration.js"></script>
   </body>

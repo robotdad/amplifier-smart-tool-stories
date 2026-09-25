@@ -78,6 +78,7 @@ def create_server(client):
                 "narration_id",
                 "panel_id",
                 "view_id",
+                "job_id",
             )
         },
         "title": Annotated[str, Field(min_length=1, max_length=300, strict=True)],
@@ -98,6 +99,7 @@ def create_server(client):
         "comparison_revision": Annotated[str, Field(max_length=200, strict=True)],
         "export_format": Literal["html", "zip", "pdf", "docx"],
         "sections": list[Literal["sources", "grant", "export", "work"]],
+        "native_context": dict[str, Any],
         "panel_open": Annotated[bool, Field(strict=True)],
         "after": integer,
         "slide": Annotated[int, Field(ge=1, strict=True)],
@@ -122,6 +124,8 @@ def create_server(client):
         "target_seconds": Annotated[float, Field(gt=0, le=7200)],
         "concurrency": Annotated[int, Field(ge=1, le=8, strict=True)],
         "timeout_seconds": Annotated[int, Field(ge=1, le=300, strict=True)],
+        "delivery": Literal["embedded", "separate"],
+        "pause_seconds": Annotated[float, Field(ge=0, le=60)],
     }
     operations = (
         "list_stories",
@@ -132,6 +136,11 @@ def create_server(client):
         "get_revision",
         "get_preview",
         "select_revision",
+        "accept_revision",
+        "get_video_export",
+        "start_provider_job",
+        "get_provider_job",
+        "cancel_provider_job",
         "get_review_view",
         "update_review_view",
         "grant_feedback",
@@ -190,7 +199,7 @@ def create_server(client):
         story_id = arguments.get("story_id") or (result.get("story_id") if isinstance(result, dict) else None)
         if name == "get_story":
             story_id = result["id"]
-        if name in {"get_media", "get_narration_audio", "get_export"}:
+        if name in {"get_media", "get_narration_audio", "get_export", "get_video_export"}:
             data = base64.b64decode(result.pop("data_base64"))
             if name == "get_media":
                 uri = f"stories://media/{story_id}/{arguments['revision_id']}/{arguments['asset_id']}/0"
@@ -212,6 +221,7 @@ def create_server(client):
                 uri = f"stories://export/{identity}/0"
                 result.update(transfer_lifetime="MCP server process", transfer_sha256=identity)
             result.update(resource_uri=uri, bytes=len(data), chunk_bytes=CHUNK_BYTES)
+            result["transfer_sha256"] = hashlib.sha256(data).hexdigest()
         return {"operation": name, "story_id": story_id, "result": result}
 
     def register(name):
@@ -222,7 +232,11 @@ def create_server(client):
             if name == "import_media" and param.name == "path":
                 continue  # Explicit bytes, never a host filesystem resolver.
             annotation = (
-                SpeechGrant if name == "generate_narration" and param.name == "grant" else types[param.name]
+                Literal["prepare", "test", "models", "login"]
+                if name == "start_provider_job" and param.name == "kind"
+                else SpeechGrant
+                if name == "generate_narration" and param.name == "grant"
+                else types[param.name]
             )
             if param.default is None:
                 annotation = annotation | None
@@ -246,6 +260,8 @@ def create_server(client):
                         "model_access_required",
                     )
                 result = await anyio.to_thread.run_sync(lambda: method(**arguments))
+                if name in {"provider_settings", "narration_settings"}:
+                    result = {**result, "model_access": client.model_env}
                 value = payload_result(name, arguments, result)
                 presentation_story_id = value.get("story_id")
                 if name == "cancel_operation":
@@ -277,7 +293,7 @@ def create_server(client):
         description = inspect.getdoc(method) or name.replace("_", " ")
         if name in {"add_comment", "respond"}:
             description += " Author defaults to agent (a note, no spending). Use author=user only to convey an actual user submission, which may consume existing feedback authority when model execution is available. Provider-free submission is retained awaiting model access without consuming that authority or starting work. Attribution is caller-reported, not authenticated by MCP."
-        if name in {"get_media", "get_narration_audio", "get_export"}:
+        if name in {"get_media", "get_narration_audio", "get_export", "get_video_export"}:
             description += (
                 " Returns an opaque MCP resource URI; read successive 512 KiB chunks through resources/read."
             )
@@ -312,9 +328,9 @@ def create_server(client):
             "Open any advertised review UI with the same story/revision identities. Tool and app use the same library. "
             "Use get_review_view/update_review_view to drive shared review focus, one-based slide, comparison, selected anchor, panel, sections and export format. Supply the exact view version; viewing never chooses a direction. "
             "add_comment defaults to author=agent, which never consumes feedback authority. author=user is only caller-reported attribution for an actual human submission, not authentication. "
-            "Selection does not mean human acceptance, model permission or publication. Native acceptance is deliberately outside this initial portable adapter. "
+            "Selection does not mean human acceptance, model permission or publication. accept_revision conveys caller-reported acceptance, not authenticated human identity. "
             "Media/export tools return scoped resources, in 512 KiB chunks. Closing a view or transport does not stop owned background work; use cancel_operation. "
-            "No MCP sampling, Tasks, elicitation, login, runtime preparation, or video export is provided by this adapter."
+            "Provider setup uses explicit model_env-gated durable jobs; poll get_provider_job, never replay setup. get_video_export uses retained presentation narration without synthesizing. No MCP sampling, Tasks or elicitation."
         ),
     )
 
@@ -395,7 +411,7 @@ def create_server(client):
             "narration": client.narration_settings(),
             "limits": [
                 "Caller-reported authors, no verified human identity",
-                "Native acceptance, login, runtime preparation and video export remain library/CLI capabilities",
+                "Video export requires retained presentation narration; setup jobs require explicit model access",
                 "No MCP sampling, Tasks or elicitation",
             ],
         }

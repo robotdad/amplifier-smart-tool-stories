@@ -57,6 +57,12 @@ preferences use the same public capabilities as the library and CLI.
 The dashboard is part of the product and optional to use. A caller may work headlessly,
 select the built-in dashboard, or provide its own presentation surface. Work begun
 headlessly can open in the dashboard without regeneration or conversation replay.
+The built-in HTML dashboard and MCP App provide the same review experience:
+one shared frontend, with transport adapters rather than independently maintained
+interfaces. Controls, format support and retained review context do not become a
+reduced subset merely because the workspace is opened through MCP. Transport and
+host security requirements remain explicit; parity does not grant provider access,
+authenticate a caller-reported person, or authorize spending.
 The person and calling agent share the same story state: submitted feedback,
 answers and changes are observable to the caller; unsubmitted drafts remain distinct
 from instructions. Recording an action does not promise to wake the calling agent.
@@ -161,6 +167,8 @@ preserving retained results for a later return.
 
 ## Changelog
 
+- **2026-09-24** — Recorded the requested identical HTML/MCP experience and approved
+  shared-frontend approach. This is intended direction, not a verified parity claim.
 - **2026-09-18** — Added general-purpose storyboard exploration, shared comparison
   and image generation across formats as intended capabilities, not support claims.
 - **2026-09-16** — Added the optional built-in review workspace, shared caller state,

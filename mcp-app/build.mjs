@@ -9,8 +9,19 @@ const bridge = await readFile(
   "utf8",
 );
 const result = await build({
-  define: { __PREVIEW_BRIDGE__: JSON.stringify(bridge) },
-  entryPoints: [new URL("app.js", import.meta.url).pathname],
+  define: {
+    __PREVIEW_BRIDGE__: JSON.stringify(bridge),
+    __DOCUMENT_BRIDGE__: JSON.stringify(await readFile(new URL("../src/amplifier_smart_tool_stories/resources/document-view.js", import.meta.url), "utf8")),
+  },
+  stdin: {
+    contents: [
+      await readFile(new URL("app.js", import.meta.url), "utf8"),
+      ...await Promise.all(["dashboard.js", "comparison.js", "provider-settings.js", "narration.js"].map(
+        name => readFile(new URL("../src/amplifier_smart_tool_stories/resources/" + name, import.meta.url), "utf8"))),
+    ].join("\n;\n"),
+    resolveDir: new URL(".", import.meta.url).pathname,
+    sourcefile: "shared-dashboard.js",
+  },
   bundle: true,
   minify: true,
   write: false,
@@ -19,7 +30,13 @@ const result = await build({
   legalComments: "inline",
   metafile: true,
 });
-const template = await readFile(new URL("index.html", import.meta.url), "utf8");
+const resources = new URL("../src/amplifier_smart_tool_stories/resources/", import.meta.url);
+const css = await readFile(new URL("dashboard.css", resources), "utf8");
+const template = (await readFile(new URL("dashboard.html", resources), "utf8"))
+  .replace(/<link rel="stylesheet" href="\/style.css"\s*\/>/, () => `<style>${css}</style>`)
+  .replace(/<script src="\/[^"]+"><\/script>/g, "")
+  .replace(/[ \t]+$/gm, "")
+  .replace("</body>", "<!-- APP_SCRIPT --></body>");
 const script = result.outputFiles[0].text.replaceAll("</script", "<\\/script");
 await writeFile(
   new URL(

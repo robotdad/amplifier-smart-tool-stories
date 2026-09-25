@@ -33,7 +33,13 @@ Read `stories_get_story` before continuing. Sources, annotations, selected revis
 selected direction and saved drafts are shared state. Drafts are context, not model
 instructions or execution permission. Mutation `request_id` values identify exact
 intent: reuse the original ID to retry that exact input, choose a new ID for new
-intent. `stories_save_draft` uses a monotonically ordered `sequence` per draft.
+intent. `stories_save_draft` accepts the observed `expected_version` (zero when
+absent) and returns the new draft `version`. The shared frontend uses this content
+CAS at the actual write boundary: a stale clock-skewed editor cannot overwrite a
+newer acknowledged draft before a later navigation conflict. Its unsaved text
+stays in its open composer for reconciliation. Exact retries are idempotent.
+Sequence-only legacy callers keep their old ordering for legacy draft identities;
+after CAS is used on a draft, an omitted version conflicts rather than bypassing it.
 Observing state or receiving a submission receipt does not wake a calling agent.
 
 The App presents the actual retained, sanitized preview. A second preview can compare
@@ -47,13 +53,22 @@ enable model access, confirm a valid allowance, then submit an explicit follow-u
 with a new request ID; reopening alone never starts the waiting comment.
 Caller notes default to `author=agent` and never initiate model work. `author=user`
 means the caller reports an actual human submission. MCP does **not** authenticate a
-person or verify this claim. The portable adapter omits native human acceptance.
+person or verify this claim. `stories_accept_revision` records explicitly conveyed
+acceptance of the exact revision with the same caller-reported limitation.
 
-After an uncertain authorization response, the open App retains the original grant
-and request ID for retry. Restore its input values to retry it, or use **Authorize
-new feedback** to deliberately replace the allowance. Pending authorization IDs
-are local to that App session; after a reload, inspect retained authority before
-authorizing again.
+Both surfaces compile the same native HTML, CSS, review, comparison, settings and
+narration controllers. HTTP and MCP adapters supply bootstrap, public API calls,
+binary transfer, external links and host context; neither adapter owns a second UI.
+Feedback authority is supplied through the public library/tool, not an MCP-only
+authorization panel. Exact grant retries still return their original receipt and
+never replenish a consumed allowance.
+
+Pending user mutation payloads and request IDs are inert retained review context.
+An uncertain response keeps the original intent for explicit retry, including
+after reconnect. Changed intent cannot silently reuse or replace that request.
+Definite library rejection releases it for corrected input. Saved drafts, document
+view settings and composer context do not require iframe localStorage or a shared
+browser profile. The shared review identity is not an authenticated person.
 
 The reviewer may select text or an identified element in the preview to target a
 comment. Saved drafts survive reconnects. Incoming changes update shared metadata
@@ -64,8 +79,8 @@ export format between agents and people. Read the current version before updatin
 stale versions conflict instead of overwriting another participant. Reopening
 restores this position. A view change is distinct from choosing a direction.
 The browser follows explicit shared view changes, including agent navigation.
-Audio playback position/volume, browser download handling, scrolling and unsubmitted
-grant input fields remain local presentation state; the actual underlying narration,
+Audio playback position/volume and browser download handling remain local
+presentation state; document passage/zoom/mode, acknowledged drafts and the underlying narration,
 export and grant actions are public tools. Preview content is nested
 in a separate opaque frame, with no App bridge, credentials or network authority.
 A failure loading media is visible; successful display is not a quality review.
@@ -82,6 +97,7 @@ No URI accepts a filesystem path or reads media outside its exact retained revis
 
 - `stories://media/{story}/{revision}/{asset}/{offset}` reads immutable attached media.
 - `stories://audio/{story}/{narration}/{slide}/{offset}` reads retained slide narration.
+- `stories://panel-audio/{story}/{narration}/{panel}/{offset}` reads stable-panel narration.
 - `stories://export/{sha256}/{offset}` reads one prepared export snapshot.
 
 Export snapshots retain one exact byte sequence, including ZIP/PDF/Word formats
@@ -93,7 +109,7 @@ for durable files and larger deliveries. The App buffers at most 128 MiB per ite
 this is a presenter limit, not the library's artifact limit. Reads do not publish,
 regenerate media, apply drafts, or alter revision acceptance.
 
-## Validated capability scope
+## Implemented capability scope
 
 | Capability | MCP tools | Portable App |
 | --- | --- | --- |
@@ -102,18 +118,51 @@ regenerate media, apply drafts, or alter revision acceptance.
 | Side-by-side revision comparison and explicit direction choice | Yes | Yes |
 | Versioned review navigation, focus and panel state | Yes | Yes; reconnect restores position |
 | Anchored/whole-story comments and saved drafts | Yes | Yes |
-| Finite feedback authority | Yes | Explicit control; disabled without model access |
-| Writing/speech settings and narration preparation/synthesis | Yes | Redacted status and retained-audio listening |
+| Finite feedback authority | Yes | Uses existing authority, exactly like native review |
+| Writing/speech settings and narration preparation/synthesis | Yes | Shared native dialog, scripts, generation, cancellation and playback |
 | Retained images/video and chunked HTML/ZIP/PDF/Word delivery | Yes, subject to library format support | Preview and download |
-| Native human acceptance | Library/CLI only | Deliberately omitted; no verified-human claim |
-| Provider login, runtime preparation and video export | Library/CLI only | Not exposed |
+| Caller-reported acceptance | Yes | Exact-revision acceptance; no verified-human claim |
+| Provider login, runtime preparation, discovery and test | Durable public jobs | Shared settings controls; model access required |
+| Video export from retained presentation narration | Path-free bounded bytes | Shared native export controls, no implicit synthesis |
 | Automatic image generation, notifications or caller wake-up | Not added by this adapter | Not promised |
 
 The browser uses the official MCP Apps SDK, bundled into a self-contained packaged
 resource with third-party license notices. Maintainers build it with `npm ci --prefix
 mcp-app` and `npm run build --prefix mcp-app`; users need no Node installation.
-Provider-free tests verify portable interaction, persistence, resource boundaries
-and a separate host. They do not establish model output quality or provider access.
+Provider-free tests cover paired native/independent-host storyboard review,
+document view controls, acknowledged draft recovery, delayed typing, lost comment
+acknowledgement, comparison and resource isolation. Both browser transports also
+exercise script editing, deterministic synthetic speech, retained audio and real
+FFmpeg video download. These checks do not establish live provider access or model output quality,
+nor exhaustive browser coverage of every narration/provider interaction.
+
+`stories_start_provider_job` accepts `kind` (prepare/test/models/login), provider,
+model and request_id. Poll `stories_get_provider_job` using its job_id; explicit
+`stories_cancel_provider_job` stops the owned worker's provider work. Setup is
+given a 310-second execution deadline, progress to 30 messages of 2,000 characters. Admission and
+receipt are durable before dispatch; a failed dispatch or expired job is never
+automatically replayed. A claimed expired job becomes `timing_out`, not completed:
+exclusion remains until the owner finishes cleanup or loss of its kernel file
+lease proves that owner exited. `cancelling` likewise distinguishes a stop request
+from settled cleanup. A reused PID is not ownership evidence. A lost owner is
+reported failed without replay; an expired unclaimed admission is fenced before
+any late worker can start. Cleanup that does not settle remains visibly blocking.
+Setup excludes concurrent store work and configuration
+changes. A test does not apply writing settings. Writing configuration belongs to
+the server instance; speech settings remain store-scoped. Preparing runtime modules
+can install dependencies; login can update native credential caches; test sends
+one small model request. All require explicit model access.
+
+`stories_get_video_export` wraps library `export_video` in owned temporary output,
+requiring exact retained narration. It returns a process-lifetime immutable export
+transfer, not a host path. It does not synthesize speech. Storyboard audio speaks
+exact panel text by panel ID; script adaptation and video delivery remain
+presentation-only. Storyboard artifact exports remain HTML/ZIP.
+Temporary video output paths are omitted at event creation as well as from the
+immediate response; explicit library file exports still record their caller-chosen
+durable destination. Narration continuations carry story/revision/opening identity:
+late receipts are retained on their original target and never control a newly opened
+dialog. Metadata-only audio refresh preserves existing playable clip elements.
 
 `respond` preserves the original annotation target and accepts explicit `author`.
 Library/CLI retain their user-submission default for compatibility; the portable

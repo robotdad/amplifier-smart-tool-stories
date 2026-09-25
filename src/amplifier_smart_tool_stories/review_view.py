@@ -1,6 +1,7 @@
 """Durable review navigation, independent from choosing or accepting material."""
 
 import copy
+import json
 
 from .artifacts import parse_html, validate_anchor
 from .errors import require
@@ -24,6 +25,7 @@ class ReviewViewLibrary:
                 "anchor": {"kind": "story"},
                 "export_format": "html",
                 "sections": [],
+                "native_context": {},
             }
         )
 
@@ -51,6 +53,7 @@ class ReviewViewLibrary:
         anchor=None,
         export_format=None,
         sections=None,
+        native_context=None,
     ):
         """Update shared review navigation at an exact version; viewing never chooses, accepts or runs work.
 
@@ -71,6 +74,7 @@ class ReviewViewLibrary:
             anchor,
             export_format,
             sections,
+            native_context,
         ]
 
         def action(db):
@@ -115,6 +119,144 @@ class ReviewViewLibrary:
                     "Unknown review panel section.",
                 )
                 state["sections"] = sorted(set(sections))
+            if native_context is not None:
+                require(
+                    isinstance(native_context, dict)
+                    and set(native_context)
+                    <= {
+                        "document_view",
+                        "composer_open",
+                        "draft_id",
+                        "active_annotation",
+                        "review_visible",
+                        "comparison_ids",
+                        "pending",
+                        "narration",
+                        "details_open",
+                        "comparison_open",
+                        "revision_comments",
+                    }
+                    and len(json.dumps(native_context, allow_nan=False)) <= 64000,
+                    "Invalid or oversized native review context.",
+                )
+                for field in ("composer_open", "review_visible", "details_open", "comparison_open"):
+                    require(
+                        field not in native_context or type(native_context[field]) is bool,
+                        f"{field} must be boolean.",
+                    )
+                for field in ("draft_id", "active_annotation"):
+                    value = native_context.get(field)
+                    require(
+                        value is None or isinstance(value, str) and len(value) <= 200, f"Invalid {field}."
+                    )
+                document = native_context.get("document_view")
+                if document is not None:
+                    require(
+                        isinstance(document, dict)
+                        and set(document) <= {"mode", "zoom", "fit", "passage"}
+                        and document.get("mode", "continuous") in {"continuous", "paginated"}
+                        and type(document.get("zoom", 1)) in (int, float)
+                        and 0.35 <= document.get("zoom", 1) <= 2
+                        and type(document.get("fit", False)) is bool,
+                        "Invalid document view.",
+                    )
+                comparisons = native_context.get("comparison_ids", [])
+                require(
+                    isinstance(comparisons, list) and len(comparisons) <= 2, "Compare at most two revisions."
+                )
+                for target in comparisons:
+                    self._revision(story, target)
+                comments = native_context.get("revision_comments", {})
+                require(isinstance(comments, dict), "Invalid revision comment context.")
+                for target, comment in comments.items():
+                    material = self._revision(story, target)
+                    require(
+                        isinstance(comment, dict)
+                        and set(comment) == {"anchor", "draft_id", "active_annotation", "composer_open"}
+                        and type(comment["composer_open"]) is bool
+                        and all(
+                            comment[field] is None
+                            or isinstance(comment[field], str)
+                            and len(comment[field]) <= 200
+                            for field in ("draft_id", "active_annotation")
+                        ),
+                        "Invalid revision comment context.",
+                    )
+                    checked_anchor = validate_anchor(
+                        material["html"], comment["anchor"], material.get("assets", [])
+                    )
+                    if comment["draft_id"] is not None:
+                        draft = story["drafts"].get(comment["draft_id"])
+                        require(
+                            draft is not None
+                            and draft["revision_id"] == target
+                            and draft["anchor"] == checked_anchor,
+                            "Retained comment draft must match its exact revision and anchor.",
+                        )
+                    if comment["active_annotation"] is not None:
+                        require(
+                            any(
+                                note["id"] == comment["active_annotation"]
+                                and note["revision_id"] == target
+                                and note["anchor"] == checked_anchor
+                                for note in story["annotations"]
+                            ),
+                            "Retained comment thread must match its exact revision and anchor.",
+                        )
+                pending = native_context.get("pending", {})
+                require(isinstance(pending, dict) and len(pending) <= 12, "Invalid pending review intents.")
+                for intent in pending.values():
+                    require(
+                        isinstance(intent, dict)
+                        and set(intent) == {"payload", "request_id"}
+                        and isinstance(intent["request_id"], str)
+                        and 0 < len(intent["request_id"]) <= 200
+                        and isinstance(intent["payload"], dict)
+                        and intent["payload"].get("story_id") == story_id,
+                        "Pending intents must retain this exact story, payload and request identity.",
+                    )
+                narration = native_context.get("narration", {})
+                require(isinstance(narration, dict), "Invalid narration draft context.")
+                for target, draft in narration.items():
+                    self._revision(story, target)
+                    require(
+                        isinstance(draft, dict)
+                        and set(draft)
+                        <= {
+                            "notes",
+                            "script_id",
+                            "guidance",
+                            "duration",
+                            "operation",
+                            "writing_operation",
+                            "writing_draft",
+                        }
+                        and isinstance(draft.get("notes", []), list)
+                        and all(isinstance(text, str) for text in draft.get("notes", [])),
+                        "Invalid narration draft.",
+                    )
+                    for field, table, kind in (
+                        ("operation", "operations", "narration"),
+                        ("writing_operation", "operations", "prepare_narration"),
+                        ("script_id", "narration_scripts", None),
+                    ):
+                        reference = draft.get(field)
+                        if reference is None:
+                            continue
+                        require(
+                            isinstance(reference, str) and 0 < len(reference) <= 200,
+                            f"Retained narration reference {field} must be an identity or null.",
+                        )
+                        record = self.store.get(db, table, reference)
+                        require(
+                            record["story_id"] == story_id
+                            and record["revision_id"] == target
+                            and (kind is None or record["kind"] == kind),
+                            f"Retained narration reference {field} must match its exact story, revision and kind.",
+                        )
+                # Context is inert caller data: never dispatch a retained request.
+                # Explicit UI retry still crosses the original public mutation.
+                state["native_context"] = copy.deepcopy(native_context)
             state["version"] += 1
             story.setdefault("review_views", {})[view_id] = state
             self.store.put(db, "stories", story)

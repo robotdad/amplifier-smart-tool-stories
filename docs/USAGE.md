@@ -12,7 +12,19 @@ self-contained MCP App. Story results identify one reusable dashboard per retain
 story without changing revision focus or execution authority. See [portable review and its exact capability scope](MCP.md).
 It uses the same retained revisions, drafts, comments and bounded grants as the
 library. Opening does not start model work; `--model-env` and a grant are both
-required for generation. Native human acceptance is deliberately not exposed.
+required for generation. Acceptance is caller-reported, not authenticated.
+HTML and MCP compile the same native review frontend. Provider setup uses
+`start-provider-job`/`get-provider-job` with a durable request receipt and explicit
+model access; exact retries never relaunch setup. `get-video-export` returns
+bounded path-free bytes from retained presentation narration without synthesis.
+
+Shared draft writes include the observed `expected_version` from `get-story`
+(zero for an absent draft), and return a new `version`. A clock-skewed stale
+editor conflicts at the draft write itself; keep its unsaved text and reconcile
+against the retained draft before resubmission. Legacy sequence-only writes
+remain compatible only until that draft identity is first protected by CAS.
+Provider job deadlines request cleanup; `timing_out`/`cancelling` are not proof
+of settled cleanup and continue to block conflicting setup/configuration.
 
 Agents and people share review navigation without choosing or accepting material:
 
@@ -64,9 +76,9 @@ revision; background updates do not replace the displayed document.
 Prepare a provider once, explicitly allowing runtime module setup:
 
 ```sh
-stories --provider openai prepare-runtime
-stories --provider anthropic prepare-runtime
-stories --provider gemini prepare-runtime
+stories --model-env --provider openai prepare-runtime
+stories --model-env --provider anthropic prepare-runtime
+stories --model-env --provider gemini prepare-runtime
 stories --model-env --provider openai test-provider
 ```
 
@@ -243,7 +255,7 @@ The same capabilities are available before a story exists:
 stories provider-settings
 stories --model-env provider-login --input '{"provider":"chatgpt"}'
 stories --model-env provider-login --input '{"provider":"copilot"}'
-stories --provider anthropic prepare-runtime
+stories --model-env --provider anthropic prepare-runtime
 stories --model-env provider-models --input '{"provider":"anthropic"}'
 stories --model-env --provider anthropic test-provider
 ```

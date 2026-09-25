@@ -24,10 +24,7 @@ class Dashboard:
         self.token = token or secrets.token_urlsafe(32)
         owner = self
         self.operations = set()
-        self.provider_lock = threading.RLock()
-        self.provider_stop = threading.Event()
-        self.provider_thread = None
-        self.provider_job = {"status": "idle", "messages": []}
+        self.provider_jobs = set()
 
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *args):
@@ -80,6 +77,7 @@ class Dashboard:
                 assets = {
                     "/": ("dashboard.html", "text/html"),
                     "/app.js": ("dashboard.js", "text/javascript"),
+                    "/http-transport.js": ("http-transport.js", "text/javascript"),
                     "/style.css": ("dashboard.css", "text/css"),
                     "/document-view.js": ("document-view.js", "text/javascript"),
                     "/narration.js": ("narration.js", "text/javascript"),
@@ -106,6 +104,7 @@ class Dashboard:
                     require(0 < length <= 200_000, "Request too large or empty.")
                     data = json.loads(self.rfile.read(length))
                     require(isinstance(data, dict), "Request must be an object.")
+                    require(data.pop("story_id", owner.story_id) == owner.story_id, "Wrong story.")
                     path = urlparse(self.path).path
                     if path == "/api/bootstrap":
                         result = {
@@ -117,45 +116,33 @@ class Dashboard:
                     elif path == "/api/configure-narration":
                         result = owner.api.configure_narration(**data)
                     elif path == "/api/narrated-download":
-                        import tempfile
+                        import base64
 
                         require(
                             set(data) <= {"revision_id", "narration_id", "delivery", "pause_seconds"},
                             "Unknown export input.",
                         )
                         require(data.get("narration_id"), "Choose completed narration first.")
-                        ext = ".zip" if data.get("delivery") == "separate" else ".mp4"
-                        with tempfile.TemporaryDirectory(dir=owner.api.store.path) as folder:
-                            result = owner.api.export_video(
-                                story_id=owner.story_id,
-                                output_path=str(Path(folder) / ("narrated" + ext)),
-                                **data,
-                            )
-                            self.send(
-                                200, Path(result["path"]).read_bytes(), result["mime_type"], attachment=True
-                            )
+                        result = owner.api.get_video_export(story_id=owner.story_id, **data)
+                        self.send(
+                            200, base64.b64decode(result["data_base64"]), result["mime_type"], attachment=True
+                        )
                         return
                     elif path == "/api/provider-settings":
                         result = {**owner.api.provider_settings(), "model_access": owner.api.model_env}
                     elif path == "/api/configure-provider":
-                        with owner.provider_lock:
-                            require(
-                                owner.provider_job["status"] != "running",
-                                "Wait for provider setup to finish.",
-                                "provider_busy",
-                            )
-                            require(set(data) <= {"provider", "model"}, "Unknown setting.")
-                            result = owner.api.configure_provider(**data)
+                        require(set(data) <= {"provider", "model"}, "Unknown setting.")
+                        result = owner.api.configure_provider(**data)
                     elif path == "/api/provider-job":
-                        with owner.provider_lock:
-                            result = json.loads(json.dumps(owner.provider_job))
+                        result = owner.api.get_provider_job(**data)
                     elif path == "/api/start-provider-job":
-                        result = owner.start_provider_job(data)
+                        result = owner.api.start_provider_job(**data)
+                        owner.provider_jobs.add(result["job_id"])
                     elif path == "/api/stop":
-                        owner.provider_stop.set()
+                        cleanup = owner.stop_provider_jobs()
                         for operation_id in list(owner.operations):
                             owner.api.cancel_operation(operation_id)
-                        self.send(200, {"status": "stopped"})
+                        self.send(200, {"status": "stopped", "provider_cleanup": cleanup})
                         threading.Thread(target=owner.server.shutdown, daemon=True).start()
                         return
                     elif path == "/api/media":
@@ -190,6 +177,9 @@ class Dashboard:
                                 "get_speaker_notes",
                                 "cancel_operation",
                                 "get_story",
+                                "get_revision",
+                                "get_review_view",
+                                "update_review_view",
                                 "get_comparison",
                                 "select_direction",
                                 "get_preview",
@@ -213,18 +203,15 @@ class Dashboard:
                             )
                         else:
                             data["story_id"] = owner.story_id
+                            if name in {"prepare_narration", "generate_narration"}:
+                                require(
+                                    owner.api.model_env or owner.api.intelligence is not None,
+                                    "Enable model_env before submitting provider work.",
+                                    "model_access_required",
+                                )
                             if name == "add_comment":
                                 data["author"] = "user"
-                            if name in {"add_comment", "respond"}:
-                                with owner.provider_lock:
-                                    require(
-                                        owner.provider_job["status"] != "running",
-                                        "Provider setup is in progress. Your draft is saved; send it when setup finishes.",
-                                        "provider_busy",
-                                    )
-                                    result = getattr(owner.api, name)(**data)
-                            else:
-                                result = getattr(owner.api, name)(**data)
+                            result = getattr(owner.api, name)(**data)
                         if isinstance(result, dict) and result.get("operation_id"):
                             owner.operations.add(result["operation_id"])
                     self.send(200, result)
@@ -236,78 +223,27 @@ class Dashboard:
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.server.daemon_threads = True
 
-    def start_provider_job(self, data):
-        from .lib import Stories
-
-        require(set(data) <= {"kind", "provider", "model"}, "Unknown provider action field.")
-        kind = data.get("kind")
-        require(kind in {"prepare", "test", "models", "login"}, "Unknown provider action.")
-        require(
-            self.api.model_env,
-            "This viewer has no provider access. Reopen it with model_env enabled.",
-            "model_access_required",
-        )
-        with self.provider_lock:
-            require(
-                self.provider_job["status"] != "running",
-                "Another provider action is running.",
-                "provider_busy",
-            )
-            story = self.api.get_story(self.story_id)
-            ids = self.operations | {n["operation_id"] for n in story["annotations"] if n.get("operation_id")}
-            require(
-                not any(self.api.get_operation(i)["state"] in {"queued", "running"} for i in ids),
-                "Wait for current story work to finish before testing or signing in.",
-                "provider_busy",
-            )
-            target = Stories(self.api.store.path, model_env=True)
-            target.configure_provider(data.get("provider"), data.get("model"))
-            job = {"status": "running", "kind": kind, "provider": target.config.provider, "messages": []}
-            self.provider_job = job
-
-            def progress(text):
-                with self.provider_lock:
-                    job["messages"] = (job["messages"] + [str(text)[:2000]])[-30:]
-
-            def run():
-                from .providers import _job_context
-
-                _job_context.cancel = self.provider_stop
-                try:
-                    if kind == "login":
-                        result = target.provider_login(on_progress=progress)
-                    elif kind == "models":
-                        result = target.provider_models()
-                    elif kind == "prepare":
-                        result = target.prepare_runtime()
-                    else:
-                        result = target.test_provider()
-                    with self.provider_lock:
-                        job.update(status="succeeded", result=result)
-                except StoriesError as exc:
-                    with self.provider_lock:
-                        job.update(status="failed", error=exc.public()["error"])
-                except Exception:
-                    with self.provider_lock:
-                        job.update(
-                            status="failed",
-                            error={
-                                "message": "Provider action failed.",
-                                "remedy": "Check provider setup and retry.",
-                            },
-                        )
-
-            self.provider_thread = threading.Thread(target=run, daemon=True)
-            self.provider_thread.start()
-            return {"status": "running", "provider": target.config.provider, "kind": kind}
+    def stop_provider_jobs(self):
+        for job_id in self.provider_jobs:
+            self.api.cancel_provider_job(job_id)
+        deadline = time.monotonic() + 5
+        while True:
+            states = [
+                {"job_id": job_id, "status": self.api.get_provider_job(job_id)["status"]}
+                for job_id in self.provider_jobs
+            ]
+            if (
+                not any(row["status"] in {"cancelling", "timing_out"} for row in states)
+                or time.monotonic() >= deadline
+            ):
+                return states
+            time.sleep(0.05)
 
     def serve(self):
         try:
             self.server.serve_forever(poll_interval=0.1)
         finally:
-            self.provider_stop.set()
-            if self.provider_thread:
-                self.provider_thread.join(timeout=5)
+            self.stop_provider_jobs()
             self.server.server_close()
 
 

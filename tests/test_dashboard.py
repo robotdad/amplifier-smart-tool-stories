@@ -163,15 +163,27 @@ def test_provider_jobs_keep_dashboard_responsive_and_reject_overlap(server, monk
         return {"status": "succeeded", "model": "test-model"}
 
     monkeypatch.setattr(Stories, "test_provider", test)
+    from amplifier_smart_tool_stories import provider_jobs
+
+    s.api.cancel_operation(server[2])
+
+    def launch(argv, **kwargs):
+        worker = threading.Thread(target=provider_jobs.run, args=(argv[3], argv[4]), daemon=True)
+        worker.start()
+        return worker
+
+    monkeypatch.setattr(provider_jobs.subprocess, "Popen", launch)
     try:
-        with post(s, "start-provider-job", {"kind": "test", "provider": "anthropic"}) as response:
+        with post(
+            s, "start-provider-job", {"kind": "test", "provider": "anthropic", "request_id": "setup-1"}
+        ) as response:
             assert json.load(response)["status"] == "running"
         assert entered.wait(2)
         with post(s, "get-story", {}) as response:
             assert json.load(response)["id"] == r["story_id"]
         for route, data in [
             ("configure-provider", {"provider": "gemini"}),
-            ("start-provider-job", {"kind": "test", "provider": "openai"}),
+            ("start-provider-job", {"kind": "test", "provider": "openai", "request_id": "setup-2"}),
         ]:
             with pytest.raises(urllib.error.HTTPError):
                 post(s, route, data)

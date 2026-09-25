@@ -49,7 +49,9 @@ def test_typed_grants_resources_and_provider_free_status(tmp_path):
             assert generate.meta["ui"]["visibility"] == ["model", "app"]
             assert generate.input_schema["$defs"]["Grant"]["properties"]["timeout_seconds"]["maximum"] == 900
             assert generate.input_schema["$defs"]["Grant"]["additionalProperties"] is False
-            assert "stories_accept_revision" not in {t.name for t in tools}
+            assert {"stories_accept_revision", "stories_start_provider_job", "stories_get_video_export"} <= {
+                t.name for t in tools
+            }
             status = (await client.call_tool("stories_status", {})).structured_content
             assert status["model_access"] is False
             rejected = await client.call_tool(

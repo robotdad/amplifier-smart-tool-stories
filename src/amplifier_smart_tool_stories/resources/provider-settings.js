@@ -61,7 +61,7 @@
     clearTimeout(timer);
     try {
       const job = await api("provider-job");
-      busy = job.status === "running";
+      busy = ["running", "cancelling", "timing_out"].includes(job.status);
       const lines = [...(job.messages || [])];
       if (busy)
         lines.push(
@@ -140,7 +140,7 @@
     status();
     $("providerResult").textContent = "Starting…";
     try {
-      await api("start-provider-job", { kind, ...input() });
+      await retainedMutation("start-provider-job", { kind, ...input() });
       await poll();
     } catch (e) {
       busy = false;

@@ -21,7 +21,10 @@
     });
   }
   function release() { urls.forEach(URL.revokeObjectURL); urls = []; }
-  dialog.addEventListener("close", () => { generation++; release(); });
+  dialog.addEventListener("close", () => {
+    generation++; release();
+    review.retain({comparison_open: false}).catch(review.error);
+  });
   document.getElementById("closeComparison").onclick = () => dialog.close();
   async function show(ids) {
     const run = ++generation;
@@ -54,7 +57,7 @@
         choose.disabled = item.superseded;
         choose.onclick = async () => {
           try {
-            await review.api("select-direction", {revision_id: item.revision_id, request_id: crypto.randomUUID()});
+            await review.mutation("select-direction", {revision_id: item.revision_id});
             await review.refresh();
             await review.focus(item.revision_id);
             dialog.close();
@@ -95,7 +98,7 @@
     }
     document.getElementById("comparisonStatus").textContent = "Independent previews · focus does not select or generate. Presentation layout may adapt to the narrower preview.";
   }
-  async function open() {
+  async function open(suppliedIds) {
     try {
       await review.save();
       await review.refresh();
@@ -103,8 +106,8 @@
       if (!story.revisions.length) throw Error("No completed versions to compare yet.");
       const choices = document.getElementById("comparisonChoices");
       choices.replaceChildren();
-      const defaults = story.directions?.length ? story.directions.map(d => d.latest_revision).slice(-2)
-        : story.revisions.slice(-2).map(r => r.id);
+      const defaults = Array.isArray(suppliedIds) ? suppliedIds : review.context().comparison_ids || (story.directions?.length ? story.directions.map(d => d.latest_revision).slice(-2)
+        : story.revisions.slice(-2).map(r => r.id));
       const selectors = [0, 1].map(index => {
         const label = document.createElement("label"); label.textContent = index ? "Right version " : "Left version ";
         const select = document.createElement("select");
@@ -117,8 +120,13 @@
         select.value = defaults[index] || defaults[0]; label.append(select); choices.append(label);
         return select;
       });
-      for (const select of selectors) select.onchange = () => show([...new Set(selectors.map(s => s.value))]).catch(review.error);
+      for (const select of selectors) select.onchange = async () => {
+        const ids = [...new Set(selectors.map(s => s.value))];
+        try { await review.retain({comparison_ids: ids, comparison_open: true}); await show(ids); }
+        catch (e) { review.error(e); }
+      };
       if (!dialog.open) dialog.showModal();
+      await review.retain({comparison_ids: selectors.map(s => s.value), comparison_open: true});
       await show([...new Set(selectors.map(s => s.value))]);
     } catch (e) {
       document.getElementById("comparisonStatus").textContent = e.message;
@@ -129,7 +137,13 @@
   document.getElementById("documentCompare").onclick = open;
   window.addEventListener("stories-ready", () => {
     const story = review.story();
-    if (story.explore && story.directions?.length > 1 && !story.selected_direction
-        && !localStorage.getItem("stories-view" + story.id)) open();
+    if (review.context().comparison_open) open();
+    else if (story.explore && story.directions?.length > 1 && !story.selected_direction
+        && !review.context().comparison_ids) open();
+  });
+  window.addEventListener("stories-external-view", event => {
+    if (event.detail.comparison_revision && !dialog.open)
+      open([event.detail.revision_id, event.detail.comparison_revision]);
+    else if (!event.detail.comparison_revision && dialog.open) dialog.close();
   });
 })();

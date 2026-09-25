@@ -49,7 +49,7 @@ revision; new Git installs resolve the current main. No Amplifier CLI session or
 Anthropic skills checkout is needed.
 
 Before model use, explicitly prepare each selected provider's runtime:
-`stories --provider openai prepare-runtime`. Preparation may fetch/install Amplifier
+`stories --model-env --provider openai prepare-runtime`. Preparation may fetch/install Amplifier
 modules and writes to its native cache. Missing preparation produces an actionable
 failure; deterministic paths never initialize an agent. If native caches are manually
 removed or invalidated, prepare again. Model execution uses the selected provider's
@@ -171,7 +171,7 @@ All exist as methods on Stories (hyphens become underscores):
 - `grant-feedback`: bounded future user-comment authority; no spending on grant creation.
 - `add-comment`: submit a user comment or caller-authored highlight, with revision and anchor.
 - `respond`: user follow-up on an existing annotation's exact target; prior related comments supplied.
-- `save-draft`: monotonically ordered draft save, no model use.
+- `save-draft`: observed-version content CAS for shared drafts; legacy sequence ordering only for unprotected drafts, no model use.
 - `read-changes`: ordered events and next cursor; no model use or notification guarantee.
 - `get-operation`: status/result/error; no worker restart. An elapsed running operation is
   reported interrupted/uncertain; cancel it before explicitly creating replacement work.
@@ -524,7 +524,8 @@ stories --store /path/to/store get-narration-audio --input '{"story_id":"STORY_I
 This is library/CLI/MCP speech, not a storyboard-to-deck conversion. Storyboard
 HTML/ZIP exports still deliver the structured plan and visuals, not synthesized
 audio. Retrieve clips separately for production. Presentation-only script writing,
-dashboard speech controls and video export do not become storyboard capabilities.
+dashboard speech controls can synthesize and play exact retained panel text.
+Presentation script adaptation and video export do not become storyboard capabilities.
 
 ## Preparing narration independently of speech
 
@@ -594,7 +595,20 @@ use configured providers; generation still requires a bounded grant. Tool schema
 and the optional `ui://stories/review` App use the same public library and state.
 Read shared drafts before continuing. Comments default to agent notes; `author=user`
 is caller-reported human submission, not authenticated identity. The portable
-adapter omits native human acceptance, login, runtime preparation and video export.
+adapter uses the native HTML/CSS and review, comparison, settings and narration
+controllers through an MCP transport. Acceptance remains caller-reported, not
+authenticated human identity. Explicit `start-provider-job` accepts kind
+prepare/test/models/login, provider/model and request_id; `get-provider-job`
+observes its durable receipt and bounded progress without replay. Jobs require
+model_env, exclude concurrent setup/work and have a 310-second execution deadline.
+An expired claimed job is timing_out until cleanup settles or its kernel ownership
+lease proves owner loss; PID reuse does not establish ownership. Unsettled cleanup
+keeps exclusion in place. Runtime
+preparation may install modules; login writes provider-owned credential caches;
+test sends a small model request. Writing settings remain instance-scoped, speech
+settings store-scoped. `cancel-provider-job` stops the exact job, not prior effects.
+`get-video-export` returns path-free bytes from retained presentation narration
+(embedded MP4 or separate ZIP); no speech is implicitly generated.
 Media/audio/export getters return scoped, bounded MCP resource chunks; export
 transfer snapshots expire when the MCP server stops. The native library/CLI remains
 available for durable file exports. No MCP sampling, Tasks or caller wake-up is
@@ -605,8 +619,18 @@ Portable navigation is shared library state. Read `get-review-view`, then
 revision/one-based slide/comparison/anchor/panel/sections/export-format changes.
 Conflicts require rereading and reconciling; viewing never selects a direction,
 accepts content or grants work. The App follows these changes and restores them
-on reopen. Audio playback/volume, scroll, download handling and grant form drafts
-remain local presentation controls; their domain actions remain public tools.
+on reopen. A conflicting view update stops further view writes and submissions
+until the workspace is reopened for reconciliation; current typing remains in
+the open view. Acknowledged document passage/mode/zoom, comments, pending exact
+intents and narration edits are public retained context, not browser storage.
+Audio playback/volume and download handling remain local presentation controls.
+Shared comment drafts use content CAS via `save-draft.expected_version`, read from
+the draft's `version` in `get-story` (zero if absent). Stale editors conflict before
+changing content regardless of timestamp skew. Exact retries return the accepted
+version. Sequence-only legacy writes work only on drafts not yet CAS-protected.
+Narration asynchronous replies are scoped to the original story, revision and
+dialog opening; acknowledged operation identities remain on their original target.
+Metadata refresh does not replace unchanged playing audio nodes.
 
 `respond` preserves the original annotation target and accepts explicit `author`.
 Library/CLI retain their user-submission default for compatibility; the portable

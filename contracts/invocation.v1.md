@@ -80,7 +80,12 @@ formats; public help and manifests describe only supported, validated behavior.
   the initial adapter supports OpenAI, ChatGPT, Copilot, Anthropic and Gemini.
   amplifier-agent tracks main; the development lock records the tested revision.
 - Remote services and adapters beyond the optional [MCP review adapter](mcp-app.v1.md).
-  The implemented stdio/MCP Apps subset preserves public library semantics;
+  The stdio/MCP Apps adapter preserves public library semantics and compiles the
+  native review frontend rather than maintaining a reduced second UI. Provider
+  setup has durable public jobs and exact request receipts; narrated-video transfer
+  is path-free, bounded and uses retained audio only. Acceptance is caller-reported,
+  not identity authentication. Browser parity evidence is distinct from live
+  provider and narration quality evidence;
   unsupported features and unauthenticated attribution remain explicit.
 - Autonomous source connectors — promote when a source-specific permission and
   failure contract is proposed; this version does not require those connectors.

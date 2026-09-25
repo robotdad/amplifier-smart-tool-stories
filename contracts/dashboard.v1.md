@@ -97,6 +97,8 @@ Comparison of storyboard directions follows the
    changes do not silently alter narration settings or regenerate audio. Native sign-in,
    runtime preparation, discovery and testing are explicit background actions; the
    person can keep reading and saving drafts while they run.
+   A deadline or cancellation request does not release setup exclusion before
+   owned cleanup settles or owner loss is established independently of PID reuse.
 8. **Export delivers the chosen revision.** Download/export identifies the selected
    revision, actual format, artifact and current findings or limitations. An existing
    artifact can be downloaded without a model call. Creating a different format is
@@ -132,9 +134,10 @@ Comparison of storyboard directions follows the
 11. **Every domain action remains library-accessible.** Preview access, evidence
     review, saved feedback, submissions, revision selection, settings, export and
     operation control use the public library; the CLI exposes the same domain
-    capabilities. Host adapters may present a subset without changing its semantics.
-    Browser layout and navigation may differ, but no important decision is trapped
-   only in the dashboard.
+   capabilities. The built-in HTML dashboard and MCP App share the same frontend,
+   controls and review behavior through transport adapters. Third-party presenters
+   may expose a subset without changing domain semantics; that does not permit a
+   reduced built-in MCP experience.
 12. **Annotations are an optional review overlay.** People and calling agents can
     highlight selected material and attach comments, questions or explanations.
     The same comment mechanism supports a whole-story target without a selection.
@@ -269,8 +272,17 @@ HTTP success alone does not establish usable review.
 
 ## Optional portable presenter
 
-The MCP Apps presenter is a documented subset, governed by
-[mcp-app.v1.md](mcp-app.v1.md). It shares exact revisions, comments, drafts and
-direction choices with the native dashboard. Native human acceptance, provider
-login/runtime preparation and video export are not exposed in that presenter.
-It does not claim full dashboard parity or authenticate caller-reported authors.
+The MCP Apps presenter is governed by [mcp-app.v1.md](mcp-app.v1.md) and uses the
+same review frontend as the HTML dashboard. Identical supported controls include
+settings, narration, acceptance and export; host or runtime prerequisites remain
+visible rather than becoming silent omissions. Transport adapters preserve their
+own authentication and isolation boundaries. An acceptance record does not prove
+the human identity of an MCP caller, and merely opening either surface grants no
+provider access or spending authority.
+
+Parity checks exercise both transports with the same retained material, viewport
+and theme: presentation, document and storyboard reading; reopening threads;
+either comparison direction; stable-panel narration; format-correct downloads;
+settings and explicit provider jobs; acceptance; draft/view continuity and
+recovery after failed or lost acknowledgements. Shared source alone is not proof
+that both surfaces work. Until those checks pass, parity remains unverified.

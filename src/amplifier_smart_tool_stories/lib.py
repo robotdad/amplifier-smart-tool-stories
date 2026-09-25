@@ -12,6 +12,7 @@ from pathlib import Path
 from .artifacts import digest, evidence_checked, parse_html, preview, validate_anchor
 from .errors import StoriesError, require
 from .media import MediaLibrary, bindings, select, warnings_for
+from .provider_jobs import ProviderJobLibrary, active_jobs
 from .review_view import ReviewViewLibrary
 from .scripts import ScriptLibrary
 from .speech import NarrationLibrary
@@ -19,7 +20,9 @@ from .store import Store, identity, now
 from .storyboard_library import StoryboardLibrary
 
 
-class Stories(StoryboardLibrary, MediaLibrary, NarrationLibrary, ScriptLibrary, ReviewViewLibrary):
+class Stories(
+    StoryboardLibrary, MediaLibrary, NarrationLibrary, ScriptLibrary, ReviewViewLibrary, ProviderJobLibrary
+):
     def __init__(
         self,
         storage=None,
@@ -52,6 +55,20 @@ class Stories(StoryboardLibrary, MediaLibrary, NarrationLibrary, ScriptLibrary, 
                     "request_conflict",
                 )
                 return json.loads(prior[1])
+            if kind in {
+                "generate",
+                "generate_storyboard",
+                "prepare_narration",
+                "generate_narration",
+                "add_comment",
+                "respond",
+                "answer_question",
+            }:
+                require(
+                    not active_jobs(db),
+                    "Provider setup is running; your draft remains unsubmitted.",
+                    "provider_busy",
+                )
             result = action(db)
             db.execute("INSERT INTO requests VALUES (?,?,?)", (request_id, fingerprint, json.dumps(result)))
         # Only the first accepted mutation may dispatch. Exact receipt retries never launch work.
@@ -478,8 +495,12 @@ class Stories(StoryboardLibrary, MediaLibrary, NarrationLibrary, ScriptLibrary, 
 
         return self._mutation(request_id, "accept_revision", [story_id, revision_id], action)
 
-    def save_draft(self, story_id, revision_id, draft_id, sequence, text, anchor=None):
-        """Save unsubmitted text; monotonically ordered per draft_id, never executes a model."""
+    def save_draft(self, story_id, revision_id, draft_id, sequence, text, anchor=None, expected_version=None):
+        """Save inert text with content CAS. Pass the observed draft version (zero if absent).
+
+        Exact retries return the accepted version. Legacy sequence-only writes remain
+        supported only for drafts not yet protected by CAS; they cannot bypass it.
+        """
         require(isinstance(draft_id, str) and 0 < len(draft_id) <= 200, "Supply a draft identity.")
         require(type(sequence) is int and sequence >= 0, "Draft sequence must be a nonnegative integer.")
         require(isinstance(text, str) and len(text) <= 12000, "Draft is too long.")
@@ -488,7 +509,31 @@ class Stories(StoryboardLibrary, MediaLibrary, NarrationLibrary, ScriptLibrary, 
             rev = self._revision(story, revision_id)
             checked = validate_anchor(rev["html"], anchor or {"kind": "story"}, rev.get("assets", []))
             old = story["drafts"].get(draft_id)
-            if old and old["sequence"] >= sequence:
+            version = old.get("version", 0) if old else 0
+            if expected_version is not None:
+                require(type(expected_version) is int and expected_version >= 0, "Invalid draft version.")
+                if (
+                    old
+                    and old.get("cas")
+                    and version == expected_version + 1
+                    and old["sequence"] == sequence
+                    and old["text"] == text
+                    and old["anchor"] == checked
+                    and old["revision_id"] == revision_id
+                ):
+                    return {"status": "saved", "sequence": sequence, "version": version}
+                require(
+                    version == expected_version,
+                    "Draft changed in another view. Retain your text and reopen to reconcile.",
+                    "draft_conflict",
+                )
+            else:
+                require(
+                    not old or not old.get("cas"),
+                    "This shared draft requires its observed version.",
+                    "draft_conflict",
+                )
+            if expected_version is None and old and old["sequence"] >= sequence:
                 return {"status": "stale", "draft": old}
             story["drafts"][draft_id] = {
                 "revision_id": revision_id,
@@ -496,9 +541,11 @@ class Stories(StoryboardLibrary, MediaLibrary, NarrationLibrary, ScriptLibrary, 
                 "text": text,
                 "sequence": sequence,
                 "saved_at": now(),
+                "version": version + 1,
+                "cas": expected_version is not None,
             }
             self.store.put(db, "stories", story)
-            return {"status": "saved", "sequence": sequence}
+            return {"status": "saved", "sequence": sequence, "version": version + 1}
 
     def generate(
         self, title, purpose, audience, sources, grant, request_id, kind="presentation", asset_ids=None
@@ -847,6 +894,31 @@ class Stories(StoryboardLibrary, MediaLibrary, NarrationLibrary, ScriptLibrary, 
         pause_seconds=0.5,
     ):
         """Export slides as silent MP4, or use retained narration for embedded MP4 (default) or separate assets ZIP."""
+        return self._export_video(
+            story_id,
+            revision_id,
+            output_path,
+            slide_seconds,
+            timeout_seconds,
+            narration_id,
+            delivery,
+            pause_seconds,
+            record_path=True,
+        )
+
+    def _export_video(
+        self,
+        story_id,
+        revision_id,
+        output_path,
+        slide_seconds=None,
+        timeout_seconds=300,
+        narration_id=None,
+        delivery="embedded",
+        pause_seconds=0.5,
+        *,
+        record_path,
+    ):
         from .media import image_payload
         from .video import encode
 
@@ -874,9 +946,57 @@ class Stories(StoryboardLibrary, MediaLibrary, NarrationLibrary, ScriptLibrary, 
         result["story_id"] = story_id
         with self.store.transaction() as db:
             self.store.event(
-                db, story_id, "video_exported", **{k: v for k, v in result.items() if k != "story_id"}
+                db,
+                story_id,
+                "video_exported",
+                **{k: v for k, v in result.items() if k != "story_id" and (record_path or k != "path")},
             )
         return result
+
+    def get_video_export(
+        self,
+        story_id,
+        revision_id,
+        narration_id,
+        delivery="embedded",
+        pause_seconds=0.5,
+        timeout_seconds=300,
+    ):
+        """Prepare path-free video bytes from exact retained narration; never synthesizes speech.
+
+        Presentation sources only. Output is bounded to 128 MiB; use export_video
+        with an explicit destination for larger files. Temporary files are removed.
+        """
+        import base64
+        import tempfile
+
+        require(narration_id, "Choose retained narration first.")
+        with tempfile.TemporaryDirectory(dir=self.store.path) as folder:
+            result = self._export_video(
+                story_id,
+                revision_id,
+                str(Path(folder) / ("video.zip" if delivery == "separate" else "video.mp4")),
+                narration_id=narration_id,
+                delivery=delivery,
+                pause_seconds=pause_seconds,
+                timeout_seconds=timeout_seconds,
+                record_path=False,
+            )
+            path = Path(result.pop("path"))
+            require(
+                path.stat().st_size <= 128 * 1024 * 1024,
+                "Video exceeds the 128 MiB transfer limit; use export_video.",
+                "transfer_limit",
+            )
+            raw = path.read_bytes()
+        return {
+            **result,
+            "story_id": story_id,
+            "revision_id": revision_id,
+            "narration_id": narration_id,
+            "data_base64": base64.b64encode(raw).decode(),
+            "bytes": len(raw),
+        }
 
     def storytelling_capabilities(self):
         """List supported writing approaches and their upstream mapping; generation selects relevant expertise from the request."""
@@ -899,14 +1019,17 @@ class Stories(StoryboardLibrary, MediaLibrary, NarrationLibrary, ScriptLibrary, 
         """Set provider/model for future operations and authorized feedback in this instance; existing operations and grant limits stay fixed."""
         from .providers import ProviderConfig
 
-        self.config = ProviderConfig(provider, model, use_env=False)
-        self._feedback_provider_override = True
+        with self.store.transaction() as db:
+            require(not active_jobs(db), "Wait for provider setup to finish.", "provider_busy")
+            self.config = ProviderConfig(provider, model, use_env=False)
+            self._feedback_provider_override = True
         return self.config.public()
 
     def prepare_runtime(self):
         """Explicitly resolve and install Amplifier's runtime modules. Network and package writes are expected."""
         from .providers import prepare_runtime
 
+        require(self.model_env, "Enable model_env for runtime preparation.", "model_access_required")
         return prepare_runtime(self.config)
 
     def test_provider(self, timeout_seconds=60):
@@ -973,7 +1096,7 @@ class Stories(StoryboardLibrary, MediaLibrary, NarrationLibrary, ScriptLibrary, 
                         "test_provider",
                     }
                     else "conditional"
-                    if name in {"add_comment", "respond", "generate_narration"}
+                    if name in {"add_comment", "respond", "generate_narration", "start_provider_job"}
                     else "deterministic",
                 }
                 for name in CAPABILITIES
@@ -982,6 +1105,10 @@ class Stories(StoryboardLibrary, MediaLibrary, NarrationLibrary, ScriptLibrary, 
 
 
 CAPABILITIES = [
+    "start_provider_job",
+    "get_provider_job",
+    "cancel_provider_job",
+    "get_video_export",
     "prepare_narration",
     "get_narration_script",
     "list_narration_scripts",
