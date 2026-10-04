@@ -192,7 +192,7 @@ async def compose(story, operation, ask, calls):
         result.update(candidates=completed, failures=failures)
     result["review_attempts"] = attempts
     result["provenance"] = {
-        "runtime": "amplifier-agent",
+        "runtime": "amplifier-core+foundation",
         "calls": calls,
         "model_calls": len(calls),
         "plan": extracted.get("plan"),

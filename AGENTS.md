@@ -16,16 +16,18 @@ uv run ruff format --check src tests
 
 Python 3.12+ and Pango are required for artifact/rendering tests (on macOS,
 `brew install pango`). No browser download or LibreOffice is required. The
-Amplifier Agent dependency tracks main; `uv.lock` records the tested development
-revision. Advance it deliberately with `uv lock --upgrade-package amplifier-agent`
-and validate compatibility. New Git installs resolve main.
+Foundation and provider source dependencies track main; `uv.lock` records the
+tested development graph. Advance it deliberately with `uv lock --upgrade` and
+validate compatibility. New Git installs resolve main. Core uses its public wheel.
 
 ## Code structure
 
 - Put the Python library in `src/amplifier_smart_tool_stories/`.
 - Keep the `stories` CLI thin: argument parsing and I/O call library functions.
 - Package prompts, styles and templates as resources; do not depend on a checkout.
-- Use `amplifier-agent` for story reasoning. Speech synthesis uses direct provider
+- Use public Amplifier Core/Foundation provider-session APIs for story reasoning.
+  Keep native structured submission, token bounds and provider-owned authentication;
+  do not import private Agent or Foundation cache implementations. Speech synthesis uses direct provider
   APIs with separate bounded authority. Keep both integrations behind the library
   boundary and off import, help and deterministic code paths.
 - Put executable checks and fixtures in `tests/`.
@@ -69,8 +71,8 @@ environment and exercise its CLI/library from outside the checkout. Verify packa
 help, prompts and other resources without repository imports or developer state.
 
 Run `python <spec-checkout>/conformance/run.py <distribution-root>` using the
-Smart Tools conformance kit. `smart-tool.json` expects `.venv/bin/stories`; provide
-an installed environment at that location in the tested distribution. When the
+Smart Tools conformance kit. `smart-tool.json` launches the installed `stories` entry point; put the independent
+consumer environment on PATH for the conformance check. When the
 checkout contains ignored test installations with additional manifests, use an
 extracted source distribution so those copies do not pollute manifest discovery.
 Report failures and skips accurately. Conformance is not an output-quality test.

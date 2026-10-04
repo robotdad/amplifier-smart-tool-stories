@@ -1048,7 +1048,7 @@ class Stories(
         return provider_models(config, timeout_seconds)
 
     def provider_login(self, provider=None, timeout_seconds=300, on_progress=None):
-        """Explicit ChatGPT/Copilot sign-in or API-key setup guidance; native caches own credentials. May fetch runtime modules."""
+        """Explicit ChatGPT/Copilot sign-in or API-key setup guidance; native caches own credentials. Uses installed runtime modules only."""
         require(self.model_env, "Enable model_env for provider login.", "model_access_required")
         from .providers import ProviderConfig, provider_login
 

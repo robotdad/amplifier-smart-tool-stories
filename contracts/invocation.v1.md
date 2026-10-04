@@ -44,7 +44,7 @@ formats; public help and manifests describe only supported, validated behavior.
    capabilities use AI; complete CLI help covers every supported capability.
 4. **Deterministic use does not boot the agent runtime or execute a model.** Import,
    help, manifest access and advertised deterministic checks need no model credentials.
-5. **Story composition and reasoning embed `amplifier-agent`.** Callers need neither
+5. **Story composition and reasoning embed Amplifier Core/Foundation.** Callers need neither
    the Amplifier CLI nor an existing host session, agent catalog or Stories bundle
    installation. Speech synthesis may call a provider API directly without booting
    the agent runtime, under the same library-controlled disclosure, spending and
@@ -78,7 +78,7 @@ formats; public help and manifests describe only supported, validated behavior.
   examples and the first capability contract establish their compatibility needs.
 - Supported platforms and independently verified provider authentication paths —
   the initial adapter supports OpenAI, ChatGPT, Copilot, Anthropic and Gemini.
-  amplifier-agent tracks main; the development lock records the tested revision.
+  Foundation and provider sources track main; the development lock records the tested graph.
 - Remote services and adapters beyond the optional [MCP review adapter](mcp-app.v1.md).
   The stdio/MCP Apps adapter preserves public library semantics and compiles the
   native review frontend rather than maintaining a reduced second UI. Provider
@@ -108,3 +108,14 @@ Report skips as skips, never as passes.
   changes, publication, service startup or overwrites.
 
 Missing evidence is not a pass.
+
+## Compatibility amendment — 2026-10-03
+
+The Agent workspace split removed the former CLI catalog and prepared-bundle cache.
+Stories now uses public Core provider calls and Foundation bundle/session APIs
+directly. This retains required structured submission, output-token limits, model
+listing and provider-owned authentication, which the new Agent binding does not
+expose together. Runtime modules are installation dependencies; explicit preparation
+validates the installed selected provider and seals its code identity. Ordinary
+execution never downloads modules. Old private cache receipts require fresh explicit
+preparation; existing story state and OAuth cache paths remain unchanged.

@@ -54,41 +54,22 @@ def test_all_capabilities_have_cli_help(tmp_path):
         assert p.returncode == 0 and "--input" in p.stdout
 
 
-def test_runtime_cache_never_cold_prepares_or_activates(tmp_path, monkeypatch):
-    import hashlib
-    import pickle
-    import sys
-    from types import SimpleNamespace
-
+def test_runtime_receipt_never_cold_prepares_or_accepts_changed_code(tmp_path, monkeypatch):
     from amplifier_smart_tool_stories import providers
 
-    mark = tmp_path / "stories-openai-ready.json"
+    mark = tmp_path / "runtime.json"
     monkeypatch.setattr(providers, "marker", lambda config: mark)
+    identity = {"version": 2, "packages": {"provider-openai": {"code_sha256": "first"}}}
+    monkeypatch.setattr(providers, "_runtime_identity", lambda config: identity)
     config = ProviderConfig("openai")
-    artifact = pickle.dumps(SimpleNamespace())
-    (tmp_path / "prepared.pickle").write_bytes(artifact)
-    module = tmp_path / "provider"
-    module.mkdir()
-    mark.write_text(
-        json.dumps(
-            {
-                "python_prefix": sys.prefix,
-                "artifact_sha256": hashlib.sha256(artifact).hexdigest(),
-                "module_paths": {"provider-openai": str(module)},
-            }
-        )
-    )
-    bundle = providers._load_local_runtime(config)
-    assert bundle.resolver._activator is None
-    assert bundle.resolver.resolve("provider-openai").resolve() == module
-    module.rmdir()
     with pytest.raises(StoriesError, match="missing or changed"):
         providers._load_local_runtime(config)
-    module.mkdir()
-    (tmp_path / "prepared.pickle").write_bytes(b"corrupt")
+    mark.write_text(json.dumps(identity))
+    assert providers._load_local_runtime(config) == identity
+    identity["packages"]["provider-openai"]["code_sha256"] = "changed"
     with pytest.raises(StoriesError, match="missing or changed"):
         providers._load_local_runtime(config)
-    mark.unlink()
+    mark.write_text("invalid")
     with pytest.raises(StoriesError, match="missing or changed"):
         providers._load_local_runtime(config)
 
@@ -253,9 +234,6 @@ def test_owned_provider_job_cancellation_cleans_up(monkeypatch):
 def test_chatgpt_login_relays_device_instructions_without_mount(monkeypatch, tmp_path):
     from types import SimpleNamespace
 
-    from amplifier_agent_cli import provider_sources
-    from amplifier_agent_lib.bundle import cache
-
     from amplifier_smart_tool_stories import providers
 
     instructions = []
@@ -264,14 +242,7 @@ def test_chatgpt_login_relays_device_instructions_without_mount(monkeypatch, tmp
         assert token_file_path == str(tmp_path / "tokens.json")
         print_fn("Open https://example.test/device and enter TEST-CODE")
 
-    async def resolve(*args, **kwargs):
-        return tmp_path
-
-    async def prepare(**kwargs):
-        return SimpleNamespace(resolver=SimpleNamespace(async_resolve=resolve))
-
-    monkeypatch.setattr(cache, "load_and_prepare_cached", prepare)
-    monkeypatch.setattr(provider_sources, "oauth_token_path", lambda: tmp_path / "tokens.json")
+    monkeypatch.setattr(providers, "oauth_token_path", lambda: tmp_path / "tokens.json")
     original = providers.importlib.import_module
     monkeypatch.setattr(
         providers.importlib,
@@ -332,3 +303,38 @@ def test_anthropic_submission_uses_native_strict_custom_tool():
     assert tool.strict is True
     assert tool.input_schema["properties"]["semantic"]["type"] == "object"
     assert tool.input_schema["additionalProperties"] is False
+
+
+@pytest.mark.parametrize(
+    "name,env_name,field,module",
+    [
+        ("openai", "OPENAI_API_KEY", "api_key", "provider-openai"),
+        ("anthropic", "ANTHROPIC_API_KEY", "api_key", "provider-anthropic"),
+        ("gemini", "GEMINI_API_KEY", "api_key", "provider-gemini"),
+        ("copilot", "GH_TOKEN", "github_token", "provider-github-copilot"),
+    ],
+)
+def test_public_provider_entries_preserve_credentials_and_explicit_model(
+    monkeypatch, name, env_name, field, module
+):
+    for names in ENV.values():
+        for key in names:
+            monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv(env_name, "fixture-value")
+    assert ProviderConfig(name, "chosen-model", use_env=False).entry() == {
+        "module": module,
+        "config": {"default_model": "chosen-model", field: "fixture-value"},
+    }
+
+
+def test_prepare_rejects_installed_code_change_before_writing_receipt(tmp_path, monkeypatch):
+    from amplifier_smart_tool_stories import providers
+
+    identities = iter([{"version": 1}, {"version": 1}, {"version": 2}])
+    monkeypatch.setattr(providers, "_runtime_identity", lambda _: next(identities))
+    monkeypatch.setattr(providers, "marker", lambda _: tmp_path / "receipt.json")
+    monkeypatch.setenv("OPENAI_API_KEY", "fixture-not-a-real-key")
+    with pytest.raises(StoriesError) as error:
+        providers.prepare_runtime(ProviderConfig("openai"))
+    assert error.value.code == "runtime_not_prepared"
+    assert not (tmp_path / "receipt.json").exists()

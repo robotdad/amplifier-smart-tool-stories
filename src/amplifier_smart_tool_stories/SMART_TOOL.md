@@ -1,7 +1,7 @@
 ---
 smart_tool_format: 1
 name: amplifier-smart-tool-stories
-version: 0.1.0
+version: 0.1.1
 description: >-
   Create evidence-based presentations and documents with agent highlights and
   anchored comments. Use for source-backed communication and shared review.
@@ -44,13 +44,14 @@ remain deferred.
 `uv tool install 'amplifier-smart-tool-stories @ git+https://github.com/robotdad/amplifier-smart-tool-stories'`
 
 Python 3.12+. Deterministic operations require no provider. Smart operations use
-embedded amplifier-agent from main. The development lockfile records a tested
-revision; new Git installs resolve the current main. No Amplifier CLI session or
+the public Amplifier Core/Foundation provider APIs. Provider and Foundation
+source dependencies track main; the development lockfile records tested revisions.
+All runtime modules are installed with Stories, including the five provider adapters. No Amplifier CLI session or
 Anthropic skills checkout is needed.
 
 Before model use, explicitly prepare each selected provider's runtime:
-`stories --model-env --provider openai prepare-runtime`. Preparation may fetch/install Amplifier
-modules and writes to its native cache. Missing preparation produces an actionable
+`stories --model-env --provider openai prepare-runtime`. Preparation mounts only installed modules and records their code identity in a
+Stories-owned runtime receipt. It does not download modules. Missing preparation produces an actionable
 failure; deterministic paths never initialize an agent. If native caches are manually
 removed or invalidated, prepare again. Model execution uses the selected provider's
 native environment/OAuth credentials and sends the supplied story/source context to it.
@@ -185,7 +186,7 @@ All exist as methods on Stories (hyphens become underscores):
 - `provider-login`: explicit ChatGPT/Copilot native sign-in or API-key setup guidance.
 - `provider-settings`: redacted effective settings and credential readiness.
 - `configure-provider`: process-local future settings; no credential storage or spending.
-- `prepare-runtime`: explicit dependency preparation, network/package/cache writes.
+- `prepare-runtime`: explicit installed-module validation and tool-owned identity receipt; existing OAuth refresh may use the network.
 - `test-provider`: one small live model request, with explicit model-env.
 - `start-dashboard`: owned loopback service for a named story, no automatic browser opening.
 - `stop-dashboard`: release owned service, cancel its comment operations, retain all data.
@@ -244,7 +245,7 @@ assuming HTML review certifies another format. Annotations never enter exports.
 prepared provider without generation. Catalog presence does not guarantee access or
 image/tool compatibility. `provider-login(provider=None, timeout_seconds=300)` starts
 explicit ChatGPT/Copilot login; API-key providers return setup guidance. Both require
-`--model-env`. Login may fetch runtime modules; device authorization remains with the
+`--model-env`. Login uses installed runtime modules; device authorization remains with the
 person. CLI progress goes to stderr; library hosts may pass `on_progress(text)`.
 Credentials stay in native environment/provider caches, never story records.
 
@@ -356,7 +357,7 @@ finite `grant` and `request_id`. Optional `sources` may be empty for explicitly
 creative work. Do not turn uncertainty into automatic alternatives: set `explore`
 to true only when the person asks to explore or compare approaches. Two directions
 then share one deadline and at most 12 model calls, with one repair per candidate.
-The configured Amplifier Agent provider receives supplied context and rendered
+The configured Amplifier Core/Foundation provider receives supplied context and rendered
 review images. No new image-generation provider is invoked by storyboard work.
 
 Use `fidelity`: `outline` (default), `mixed`, or `illustrated`. Panels can reference
@@ -458,7 +459,7 @@ separate from writing settings. Providers: `openai` (`OPENAI_API_KEY`, defaults
 defaults `gemini-3.1-flash-tts-preview` / `Kore`). Updated defaults do not replace
 saved narration settings or explicit model choices. Key presence is not verified speech
 access; Anthropic, ChatGPT and Copilot authentication do not authorize these APIs.
-Speech goes directly to the provider, without an Amplifier Agent session.
+Speech goes directly to the provider, without an Amplifier Core/Foundation session.
 
 `generate-narration` requires exact story/revision, a request ID and a speech grant
 (`max_requests`, `max_characters`, `timeout_seconds`; defaults 12 / 24000 / 300,
@@ -531,7 +532,7 @@ Presentation script adaptation and video export do not become storyboard capabil
 
 Use `prepare-narration` when a narrated video needs a spoken story, or when the caller
 wants a script alone. This is optional; normal presentation generation need not
-produce a voiceover. Uses the writing provider through Amplifier Agent, independently
+produce a voiceover. Uses the writing provider through Amplifier Core/Foundation, independently
 of configured speech provider/key. Inputs are exact story/revision, ordinary writing
 `grant`, request ID, optional `guidance`, approximate `target_seconds` and
 `base_script_id` for refinement. Optional `draft_notes` supplies current editable
@@ -604,7 +605,7 @@ model_env, exclude concurrent setup/work and have a 310-second execution deadlin
 An expired claimed job is timing_out until cleanup settles or its kernel ownership
 lease proves owner loss; PID reuse does not establish ownership. Unsettled cleanup
 keeps exclusion in place. Runtime
-preparation may install modules; login writes provider-owned credential caches;
+preparation validates installed modules and records their identity; login writes provider-owned credential caches;
 test sends a small model request. Writing settings remain instance-scoped, speech
 settings store-scoped. `cancel-provider-job` stops the exact job, not prior effects.
 `get-video-export` returns path-free bytes from retained presentation narration

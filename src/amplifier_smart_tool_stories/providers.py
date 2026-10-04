@@ -4,10 +4,11 @@ import asyncio
 import copy
 import hashlib
 import importlib
+import importlib.metadata
 import json
 import os
-import pickle
 import sys
+import tempfile
 import threading
 from pathlib import Path
 
@@ -77,8 +78,6 @@ class ProviderConfig:
         return {"provider": self.provider, "model": self.model}
 
     def entry(self):
-        from amplifier_agent_cli.provider_sources import build_provider_entry, resolve_credential_detailed
-
         name = PROVIDERS[self.provider]
         if self.provider != "chatgpt":
             key = next((key for key in ENV[self.provider] if os.environ.get(key)), None)
@@ -87,15 +86,17 @@ class ProviderConfig:
                     "provider_unavailable", f"{self.provider} credentials are missing.", SETUP[self.provider]
                 )
         else:
-            if not resolve_credential_detailed(name).resolved:
+            if not _oauth().load_tokens(str(oauth_token_path())):
                 raise StoriesError(
                     "provider_unavailable", "ChatGPT OAuth is not configured.", SETUP[self.provider]
                 )
-        entry = build_provider_entry(name, model_override=self.model)
+        entry = {"module": "provider-" + name, "config": {}}
+        if self.model:
+            entry["config"]["default_model"] = self.model
         if self.provider != "chatgpt":
-            entry["config"]["api_key"] = os.environ[key]
+            entry["config"]["github_token" if self.provider == "copilot" else "api_key"] = os.environ[key]
         else:
-            entry["config"]["login_on_mount"] = False
+            entry["config"].update(login_on_mount=False, token_file_path=str(oauth_token_path()))
         return entry
 
 
@@ -106,10 +107,8 @@ def settings(config):
         key = next((key for key in keys if os.environ.get(key)), None)
         row = {"name": name, "configured": bool(key), "source": key or "none", "setup": SETUP[name]}
         if name == "chatgpt":
-            from amplifier_agent_cli.provider_sources import resolve_credential_detailed
-
             row.update(
-                configured=bool(resolve_credential_detailed("openai-chatgpt").resolved),
+                configured=bool(_oauth().load_tokens(str(oauth_token_path()))),
                 source="provider OAuth cache",
             )
         try:
@@ -125,63 +124,57 @@ def settings(config):
     }
 
 
+def _oauth():
+    # Provider-owned, public OAuth helpers; no agent CLI/cache implementation.
+    return importlib.import_module("amplifier_module_provider_openai_chatgpt.oauth")
+
+
+def oauth_token_path():
+    # Preserve the cache used by earlier Stories installations; never migrate or
+    # delete credentials as part of this adapter update. The provider owns I/O.
+    root = Path(os.environ.get("AMPLIFIER_AGENT_HOME", Path.home() / ".amplifier-agent")).expanduser()
+    return root / "state" / "openai-chatgpt-oauth.json"
+
+
 def marker(config):
-    from amplifier_agent_lib import __version__
-    from amplifier_agent_lib.bundle.cache import cache_dir_for_version
+    cache = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
+    environment = hashlib.sha256(sys.prefix.encode()).hexdigest()[:20]
+    return cache / "amplifier-stories" / "runtime-v2" / environment / f"{config.provider}.json"
 
-    return cache_dir_for_version(__version__) / f"stories-{config.provider}-ready.json"
 
-
-async def prepared(config, allow_prepare=False):
-    from amplifier_agent_lib import __version__
-    from amplifier_agent_lib.bundle.cache import load_and_prepare_cached
-
-    entry = config.entry()  # Fail before any resolver side effect on missing credentials.
-    if allow_prepare:
-        bundle = copy.copy(await load_and_prepare_cached(aaa_version=__version__))
-    else:
-        bundle = _load_local_runtime(config)
-    bundle.mount_plan = copy.deepcopy(bundle.mount_plan)
-    bundle.mount_plan.update(providers=[entry], tools=[], agents={}, hooks=[])
-    if config.provider == "chatgpt":
-        from amplifier_agent_cli.provider_sources import PROVIDER_CATALOG
-
-        item = PROVIDER_CATALOG["openai-chatgpt"]
-        path = str(
-            (await bundle.resolver.async_resolve(item["module"], source_hint=item["source"])).resolve()
-        )
-        if path not in sys.path:
-            sys.path.insert(0, path)
-        oauth = importlib.import_module("amplifier_module_provider_openai_chatgpt.oauth")
-        token_path = entry["config"].get("token_file_path")
-        tokens = oauth.load_tokens(token_path)
-        if not oauth.is_token_valid(tokens) and tokens and tokens.get("refresh_token"):
-            tokens = await oauth.refresh_tokens(tokens["refresh_token"], path=token_path)
-        if not oauth.is_token_valid(tokens):
-            raise StoriesError("provider_unavailable", "ChatGPT login is expired.", SETUP["chatgpt"])
-    return bundle
+def _runtime_identity(config):
+    """Seal the selected installed runtime; never resolve or download source."""
+    names = [
+        "amplifier-core",
+        "amplifier-foundation",
+        "amplifier-module-loop-streaming",
+        "amplifier-module-context-simple",
+        "amplifier-module-provider-" + PROVIDERS[config.provider],
+    ]
+    packages = {}
+    for name in names:
+        dist = importlib.metadata.distribution(name)
+        files = []
+        for item in dist.files or []:
+            if str(item).endswith((".py", ".so", ".pyd")) and ".dist-info/" not in str(item):
+                path = Path(dist.locate_file(item))
+                files.append((str(item), hashlib.sha256(path.read_bytes()).hexdigest()))
+        require(bool(files), "Runtime package has no verifiable installed code.", "runtime_not_prepared")
+        packages[name] = {
+            "version": dist.version,
+            "code_sha256": hashlib.sha256(
+                json.dumps(sorted(files), separators=(",", ":")).encode()
+            ).hexdigest(),
+        }
+    return {"version": 2, "python_prefix": sys.prefix, "packages": packages}
 
 
 def _load_local_runtime(config):
-    """Use only the explicitly prepared local artifact, with lazy installation disabled."""
-    from amplifier_foundation.bundle._prepared import BundleModuleResolver
-
     try:
-        mark = marker(config)
-        receipt = json.loads(mark.read_text())
-        artifact = (mark.parent / "prepared.pickle").read_bytes()
-        paths = {key: Path(value) for key, value in receipt["module_paths"].items()}
-        if (
-            receipt["python_prefix"] != sys.prefix
-            or receipt["artifact_sha256"] != hashlib.sha256(artifact).hexdigest()
-            or not paths
-            or not all(path.is_dir() for path in paths.values())
-        ):
-            raise ValueError("Runtime cache changed")
-        # This is Amplifier Agent's trusted, local cache, never caller-supplied data.
-        bundle = pickle.loads(artifact)
-        bundle.resolver = BundleModuleResolver(paths)  # No activator: no downloads/install.
-        return bundle
+        identity = _runtime_identity(config)
+        if json.loads(marker(config).read_text()) != identity:
+            raise ValueError("Installed runtime changed")
+        return identity
     except Exception:
         raise StoriesError(
             "runtime_not_prepared",
@@ -190,8 +183,36 @@ def _load_local_runtime(config):
         ) from None
 
 
+async def prepared(config, allow_prepare=False):
+    from amplifier_foundation import Bundle
+
+    entry = config.entry()  # Fail before runtime work when credentials are missing.
+    _runtime_identity(config) if allow_prepare else _load_local_runtime(config)
+    if config.provider == "chatgpt":
+        oauth = _oauth()
+        token_path = entry["config"]["token_file_path"]
+        tokens = oauth.load_tokens(token_path)
+        if not oauth.is_token_valid(tokens) and tokens and tokens.get("refresh_token"):
+            tokens = await oauth.refresh_tokens(tokens["refresh_token"], path=token_path)
+        if not oauth.is_token_valid(tokens):
+            raise StoriesError("provider_unavailable", "ChatGPT login is expired.", SETUP["chatgpt"])
+    # All modules are declared installation dependencies. Source-less entries use
+    # Core's installed entry points; no bundle source, resolver install or tool
+    # authority is inherited from the invoking host.
+    bundle = Bundle(
+        name="stories-provider",
+        providers=[entry],
+        tools=[],
+        hooks=[],
+        agents={},
+        session={"orchestrator": {"module": "loop-streaming"}, "context": {"module": "context-simple"}},
+    )
+    return await bundle.prepare(install_deps=False)
+
+
 def prepare_runtime(config):
     async def run():
+        identity = _runtime_identity(config)
         bundle = await prepared(config, allow_prepare=True)
         session = await bundle.create_session()
         async with session:
@@ -200,21 +221,21 @@ def prepare_runtime(config):
                 "Provider failed to mount.",
                 "provider_unavailable",
             )
+        require(
+            _runtime_identity(config) == identity,
+            "Installed runtime changed during preparation.",
+            "runtime_not_prepared",
+        )
         mark = marker(config)
         mark.parent.mkdir(parents=True, exist_ok=True)
-        mark.write_text(
-            json.dumps(
-                {
-                    **config.public(),
-                    "python_prefix": sys.prefix,
-                    "artifact_sha256": hashlib.sha256(
-                        (mark.parent / "prepared.pickle").read_bytes()
-                    ).hexdigest(),
-                    "module_paths": {key: str(path) for key, path in bundle.resolver._paths.items()},
-                }
-            )
-        )
-        return {"status": "succeeded", "provider": config.provider, "runtime": "amplifier-agent"}
+        with tempfile.NamedTemporaryFile(mode="w", dir=mark.parent, delete=False) as handle:
+            temporary = Path(handle.name)
+            json.dump(identity, handle)
+        try:
+            temporary.replace(mark)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return {"status": "succeeded", "provider": config.provider, "runtime": "amplifier-core+foundation"}
 
     try:
         return _run_provider(run(), 300)
@@ -224,7 +245,7 @@ def prepare_runtime(config):
         raise StoriesError(
             "runtime_prepare_failed",
             f"Runtime preparation failed ({type(exc).__name__}).",
-            "Check provider credentials, network and installed Amplifier dependencies.",
+            "Check provider credentials and reinstall Stories with its declared Amplifier dependencies.",
         ) from None
 
 
@@ -395,17 +416,7 @@ async def _login(config, timeout_seconds, progress):
         }
     if config.provider != "chatgpt":
         return {"status": "action_required", "provider": config.provider, "notice": SETUP[config.provider]}
-    from amplifier_agent_cli.provider_sources import PROVIDER_CATALOG, oauth_token_path
-    from amplifier_agent_lib import __version__
-    from amplifier_agent_lib.bundle.cache import load_and_prepare_cached
-
-    # Explicit setup may fetch modules, but must not mount an unauthenticated provider.
-    bundle = await load_and_prepare_cached(aaa_version=__version__)
-    entry = PROVIDER_CATALOG["openai-chatgpt"]
-    path = str((await bundle.resolver.async_resolve(entry["module"], source_hint=entry["source"])).resolve())
-    if path not in sys.path:
-        sys.path.insert(0, path)
-    oauth = importlib.import_module("amplifier_module_provider_openai_chatgpt.oauth")
+    oauth = _oauth()
     await oauth.login(token_file_path=str(oauth_token_path()), print_fn=progress)
     return {
         "status": "succeeded",

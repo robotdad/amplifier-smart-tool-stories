@@ -91,7 +91,7 @@ GUIDANCE = {
     "start_provider_job": (
         "Explicitly prepare runtime modules, sign in, discover models or test a provider.",
         "Durable job_id receipt; poll get-provider-job without replaying setup.",
-        "model_env required. kind is prepare, login, models or test. Preparation can install modules; login writes native credential caches; test sends one small model request. Exact request_id retries never relaunch work. The 310-second execution deadline requests cleanup; timing_out/cancelling retain exclusion until cleanup settles or the kernel ownership lease proves owner loss, not merely PID reuse. Settings remain instance-scoped; testing does not apply configuration.",
+        "model_env required. kind is prepare, login, models or test. Preparation validates installed modules and records their identity; login writes native credential caches; test sends one small model request. Exact request_id retries never relaunch work. The 310-second execution deadline requests cleanup; timing_out/cancelling retain exclusion until cleanup settles or the kernel ownership lease proves owner loss, not merely PID reuse. Settings remain instance-scoped; testing does not apply configuration.",
     ),
     "get_provider_job": (
         "Observe an explicit provider setup job, or the latest job when job_id is omitted.",
@@ -127,7 +127,7 @@ GUIDANCE = {
         "Develop a rough idea with shared storyboarding expertise; sources may be empty for clearly creative work.",
         "Queued story_id/operation_id. Read get-operation for needs_input, succeeded, partial or failed; results list revision_ids and failures.",
         "Markup exceeding 32 MiB fails with markup_resource_limit, not invalid_input or a repairable quality finding. The failed candidate remains in result.failures with its full structured sequence; no model repair is spent to reduce it. Preserve that source and choose a workflow with sufficient byte capacity. "
-        "Ordinary creation produces one direction. Set explore=true only when the person requests alternatives; then two substantive approaches share one deadline and at most 12 model calls, with one repair per candidate. Uses the configured Amplifier Agent provider and rendered review. Anthropic/OpenAI API request strict submissions; storyboard schemas are also checked locally with bounded correction. Printed sheets have a separate direction overview. Read-only comparison never generates. Only supplied still images are available; planned visuals are not image generation. Use answer-question for initial clarification, comments for refinement. Live output quality remains model-reviewed, not independent proof.",
+        "Ordinary creation produces one direction. Set explore=true only when the person requests alternatives; then two substantive approaches share one deadline and at most 12 model calls, with one repair per candidate. Uses the configured Amplifier Core/Foundation provider and rendered review. Anthropic/OpenAI API request strict submissions; storyboard schemas are also checked locally with bounded correction. Printed sheets have a separate direction overview. Read-only comparison never generates. Only supplied still images are available; planned visuals are not image generation. Use answer-question for initial clarification, comments for refinement. Live output quality remains model-reviewed, not independent proof.",
     ),
     "revise_storyboard": (
         "Retain an explicit structured edit, attach supplied images, or import an explicitly requested alternative.",
@@ -152,7 +152,7 @@ GUIDANCE = {
     "prepare_narration": (
         "Prepare or refine a coherent spoken presentation, without requiring a speech provider.",
         "Operation ID; poll get-operation, then read result.script_id with get-narration-script. Retained script versions leave deck and speaker notes unchanged.",
-        "Uses the configured writing provider through Amplifier Agent with model_env. Sends the selected deck, notes, retained sources, optional base script and guidance. Defaults favor audience relevance, explanation beyond bullets, supported examples, meaningful transitions and a useful ending. Optional target_seconds is approximate writing guidance, not audio timing. At most four model calls (composition, review, one repair and re-review) within the ordinary writing grant and deadline. Model review is not human approval. Never invokes speech or requires a speech key. Use background execution or queued plus run-operation; exact retries do not restart. Guided refinement names base_script_id; no silent edits to earlier scripts. Failed candidates/reviews remain on the operation.",
+        "Uses the configured writing provider through Amplifier Core/Foundation with model_env. Sends the selected deck, notes, retained sources, optional base script and guidance. Defaults favor audience relevance, explanation beyond bullets, supported examples, meaningful transitions and a useful ending. Optional target_seconds is approximate writing guidance, not audio timing. At most four model calls (composition, review, one repair and re-review) within the ordinary writing grant and deadline. Model review is not human approval. Never invokes speech or requires a speech key. Use background execution or queued plus run-operation; exact retries do not restart. Guided refinement names base_script_id; no silent edits to earlier scripts. Failed candidates/reviews remain on the operation.",
     ),
     "get_narration_script": (
         "Read a retained spoken script.",
@@ -351,9 +351,9 @@ GUIDANCE = {
         "CLI processes are short-lived: this does not persist settings for the next invocation. Use global --provider and --model on each CLI call. Existing queued operations stay fixed.",
     ),
     "prepare_runtime": (
-        "Explicitly install the selected provider runtime before model use.",
+        "Explicitly validate the installed provider runtime before model use.",
         "Runtime preparation receipt.",
-        "Requires model_env. May use network and install packages into native caches. Does not generate a story or sign in.",
+        "Requires model_env. Validates installed Core/Foundation and provider modules and records their code identity. Does not fetch/install packages, generate a story or sign in. ChatGPT may refresh an existing provider token.",
     ),
     "test_provider": (
         "Verify access with one small live model request.",
@@ -368,7 +368,7 @@ GUIDANCE = {
     "provider_login": (
         "Start explicit native ChatGPT/Copilot authentication.",
         "Login result or API-key setup instructions.",
-        "Requires --model-env. May fetch runtime modules. Person completes device authorization; progress goes to stderr. Credentials stay in native caches. on_progress is library-only, not a JSON argument.",
+        "Requires --model-env. Uses installed runtime modules only. Person completes device authorization; progress goes to stderr. Credentials stay in native caches. on_progress is library-only, not a JSON argument.",
     ),
     "start_dashboard": (
         "Present retained work for shared review.",

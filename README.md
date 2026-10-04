@@ -51,7 +51,7 @@ optional workspace. Stories requires Python 3.12+, Git and uv. Creating and revi
 generated artifacts also requires Pango for text layout. Your agent can follow the
 [setup instructions](src/amplifier_smart_tool_stories/SMART_TOOL.md#install-and-prerequisites).
 
-Stories uses **Amplifier Agent** and needs its own configured model access. Your
+Stories uses **Amplifier Core/Foundation** and needs its own configured model access. Your
 coding agent’s model access is not automatically shared with it. OpenAI, Anthropic,
 Gemini, ChatGPT and GitHub Copilot are supported; use a model with image input and
 tool calling for artifact generation. Ask your agent to configure the provider and

@@ -109,7 +109,7 @@ and agent-driven work operate on the same identified stories and revisions.
 
 ### 4. **Model use is deliberate.**
 
-Smart operations use the embedded agent runtime. Deterministic operations need no
+Smart operations use the embedded Amplifier Core/Foundation runtime. Deterministic operations need no
 model credentials. Missing configuration produces a remedy, not a disguised fallback.
 
 ### 5. **Creation does not imply publication.**
@@ -174,3 +174,8 @@ preserving retained results for a later return.
 - **2026-09-16** — Added the optional built-in review workspace, shared caller state,
   provider settings, revision continuity and explicit presentation lifecycle.
 - **2026-09-09** — First draft; no lock or implementation claim.
+
+- **2026-10-03** — Replace removed Agent implementation imports with public
+  Core/Foundation provider sessions, retaining bounded native structured output
+  and provider setup. Installation carries the provider modules; ordinary execution
+  does not fetch sources. This changes the adapter, not story authority or quality claims.

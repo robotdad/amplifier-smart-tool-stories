@@ -236,8 +236,8 @@ launch configuration. Credentials and settings are never written to browser stor
 **Discover models** queries the prepared provider without generation. The returned
 catalog does not guarantee account access or suitability for images and tools.
 **Test connection** sends one small model request to the chosen provider/model;
-it does not apply the selection. **Prepare runtime** explicitly downloads/installs
-provider modules and checks mounting without generating a story. Preparation status
+it does not apply the selection. **Prepare runtime** validates and mounts installed provider modules, then records
+their code identity without generating a story. It does not download modules. Preparation status
 can become stale after runtime/cache changes; prepare again if instructed.
 
 API keys stay in the native environment. **Sign in** for ChatGPT displays provider
@@ -495,7 +495,7 @@ through the library/CLI. Narrated video also has a dashboard flow described belo
 ## Narration and video with audio
 
 Narration uses direct OpenAI or Gemini speech APIs, independently of the writing
-provider and Amplifier Agent. Configure speech separately for each Stories store:
+provider and Amplifier Core/Foundation. Configure speech separately for each Stories store:
 
 ```sh
 stories --store /path/to/store narration-settings
@@ -567,7 +567,7 @@ its notes draft for the session; it does not cancel an active operation.
 
 Presentation generation preserves supplied speaker notes but does not automatically
 create a voiceover. `prepare-narration` is an optional writing operation, using the
-configured writing provider through Amplifier Agent. It works with any supported
+configured writing provider through Amplifier Core/Foundation. It works with any supported
 writing-provider setup; OpenAI/Gemini speech support is only needed for synthesis.
 It does not call TTS, alter the deck, or replace its speaker notes.
 

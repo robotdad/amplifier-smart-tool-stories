@@ -1,4 +1,4 @@
-"""Bounded composition, artifact review and one repair through Amplifier Agent."""
+"""Bounded composition, artifact review and one repair through Amplifier Core/Foundation."""
 
 import asyncio
 import json
@@ -146,7 +146,7 @@ def execute(story, operation, cancelled):
 
                 result = await prepare(story, operation, ask)
                 result["provenance"] = {
-                    "runtime": "amplifier-agent",
+                    "runtime": "amplifier-core+foundation",
                     "calls": calls,
                     "model_calls": len(calls),
                 }
@@ -352,7 +352,7 @@ def execute(story, operation, cancelled):
                     )
             result["evidence"] = evidence
             result["provenance"] = {
-                "runtime": "amplifier-agent",
+                "runtime": "amplifier-core+foundation",
                 "calls": calls,
                 "model_calls": len(calls),
                 "expertise": expertise_provenance,
