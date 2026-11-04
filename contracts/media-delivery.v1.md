@@ -67,11 +67,12 @@ behaviors; supported providers, operations and exports require implementation ev
    for separately from markup; packaging is available when embedding is unsuitable.
    This does not promise unlimited inputs or execution.
 5. **Delivery choices are explicit and portable.** Single-file HTML embeds supported
-   images and reports expected size. HTML with separate assets uses relative paths;
+   images and video and reports expected size. HTML with separate assets uses relative paths;
    a ZIP export includes the entry HTML, required assets and extraction/opening
    instructions. Presentation delivery preserves slide-by-slide navigation outside
    the review workspace; document delivery remains a scrolling document.
-   Video remains a separate asset by default. A package advertised as
+   The caller chooses embedded or referenced video; the identical video remains
+   available separately in either case. A package advertised as
    offline works after extraction without Stories, its original paths or a local
    server, on the documented supported browsers. External dependencies require an
    explicit choice and disclosure; they cannot masquerade as included assets.
@@ -189,6 +190,8 @@ for making or reviewing decks and not a general-purpose video editor.
   the original, disclose the derivative and produce the selected export in each case.
 - Extract a ZIP in an unrelated directory with Stories stopped and network disabled.
   Open its HTML and play supported media; missing assets fail export validation.
+- Export the same video embedded and referenced. Verify the selected delivery mode
+  and that the identical video is available separately in both cases.
 - Permit identified story assets while rejecting unrelated file/network requests
   and attempts to reach workspace controls. Resource exhaustion gives a remedy.
 - Report static-only inspection honestly; an unplayed clip cannot receive a playback
@@ -210,6 +213,8 @@ for making or reviewing decks and not a general-purpose video editor.
 
 ## Changelog
 
+- **2026-11-04** — Approved caller choice of embedded or referenced video, with
+  the identical video available separately in either case.
 - **2026-09-23** — Added explicit storyboard-panel speech with revision-bound
   per-panel provenance, shared speech settings and execution semantics.
 - **2026-09-18** — Added shared image generation across formats and structured
