@@ -108,8 +108,11 @@ material and model. It checks source quotations and supported arithmetic, and us
 model review for factual interpretation and rendered quality. Those checks can miss
 problems; review the result before relying on it.
 
-Presentations can include supplied images and video. Keep images unchanged, explicitly
-resize a copy, or export HTML with separate media in a ZIP; video uses ZIP delivery.
+Presentations can include supplied images and video. Export a self-contained HTML
+with retained media embedded unchanged, or a ZIP with separate media files. Retrieve
+the identical original video separately for sharing. Large-media limits are explicit;
+export never silently recompresses media or changes formats. Check actual playback
+in the intended browser or SharePoint path; static model review does not test it.
 
 Documents currently support headings, paragraphs, lists, quotations and tables.
 Imported HTML may preview differently when it depends on scripts or external assets.

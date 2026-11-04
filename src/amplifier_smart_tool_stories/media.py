@@ -336,23 +336,121 @@ class MediaLibrary:
 
 
 def portable_markup(html):
-    """Reject dependencies that cannot be included in a portable package."""
+    """Validate bounded static markup, not arbitrary HTML/SVG browser safety."""
+    from urllib.parse import urlsplit
+
     import tinycss2
 
     from .artifacts import parse_html
 
     soup = parse_html(html)
     require(
-        not soup.select("script,iframe,object,embed,link,base,meta[http-equiv]"),
+        not soup.select("script,iframe,frame,frameset,object,embed,applet,link,base,meta[http-equiv],form"),
         "Portable media export requires static HTML without scripts, frames, external stylesheets or base URLs.",
         "external_dependency",
     )
+    # A deliberately bounded inline SVG subset: geometry, text and local icons/
+    # paint servers. No animation, foreign HTML, remote images or filter loaders.
+    svg_elements = {
+        "svg",
+        "g",
+        "defs",
+        "symbol",
+        "use",
+        "image",
+        "a",
+        "title",
+        "desc",
+        "path",
+        "rect",
+        "circle",
+        "ellipse",
+        "line",
+        "polyline",
+        "polygon",
+        "text",
+        "tspan",
+        "textpath",
+        "lineargradient",
+        "radialgradient",
+        "stop",
+        "clippath",
+        "mask",
+        "pattern",
+        "marker",
+    }
+    local_ids = {node["id"] for node in soup.find_all(id=True)}
+
+    def local_reference(value):
+        return value.startswith("#") and value[1:] in local_ids
+
+    def navigation(value):
+        # Browser URL parsing removes tabs/newlines; reject controls instead of
+        # trying to recognize every obfuscated executable scheme.
+        value = value.strip()
+        if any(ord(char) < 32 or ord(char) == 127 for char in value):
+            return False
+        if value.startswith("#"):
+            return True
+        try:
+            url = urlsplit(value)
+            return url.scheme.lower() in {"http", "https"} and bool(url.netloc)
+        except ValueError:
+            return False
+
+    svg_paint = []
     for node in soup.find_all(True):
+        in_svg = node.name == "svg" or node.find_parent("svg") is not None
+        if in_svg:
+            require(
+                node.name.lower() in svg_elements,
+                "Portable media export supports only static inline SVG geometry, text and local icons; "
+                "animation, foreign content and other SVG elements are unsupported.",
+                "external_dependency",
+            )
         require(
             not any(key.startswith("on") for key in node.attrs),
             "Portable media export cannot include active event handlers.",
             "external_dependency",
         )
+        for key, value in node.attrs.items():
+            key = key.lower()
+            require(
+                key not in {"srcdoc", "ping", "action", "formaction", "data", "codebase", "archive"}
+                and key not in {"xml:base", "manifest", "lowsrc", "dynsrc"},
+                "Portable media export cannot include active content or unretained resource attributes.",
+                "external_dependency",
+            )
+            if key in {"href", "xlink:href"}:
+                allowed = (
+                    navigation(value) if node.name in {"a", "area"} else in_svg and local_reference(value)
+                )
+                require(
+                    allowed,
+                    "Portable media export permits HTTP(S) or fragment navigation links and "
+                    "local inline SVG references only; external SVG resources are not packaged.",
+                    "external_dependency",
+                )
+            if key in {"src", "poster"}:
+                require(
+                    node.name in {"img", "video", "audio", "source", "track"},
+                    "Portable media export requires registered img/video media resources.",
+                    "external_dependency",
+                )
+            if in_svg and key in {
+                "fill",
+                "stroke",
+                "filter",
+                "clip-path",
+                "mask",
+                "marker",
+                "marker-start",
+                "marker-mid",
+                "marker-end",
+                "cursor",
+                "color-profile",
+            }:
+                svg_paint.append(value)
         require(
             not node.get("srcset") and not node.get("background"),
             "Use registered img/video assets instead of srcset or background attributes.",
@@ -364,18 +462,40 @@ def portable_markup(html):
         + "\n".join(n.get("style", "") for n in soup.find_all(True))
     )
 
-    def resource_tokens(tokens):
+    def resource_tokens(tokens, allow_local=False):
         for token in tokens:
-            if token.type == "url" or (token.type == "at-keyword" and token.lower_value == "import"):
+            if token.type == "error":
                 return True
-            if token.type == "function" and (token.lower_name == "url" or resource_tokens(token.arguments)):
+            if token.type == "url" and not (allow_local and local_reference(token.value)):
                 return True
-            if getattr(token, "content", None) and resource_tokens(token.content):
+            if token.type == "at-keyword" and token.lower_value == "import":
+                return True
+            if token.type == "function":
+                # image-set/image can load string URLs without a url() token.
+                if token.lower_name in {"image-set", "-webkit-image-set", "image"}:
+                    return True
+                if token.lower_name == "url":
+                    args = [a for a in token.arguments if a.type not in {"whitespace", "comment"}]
+                    if not (
+                        allow_local
+                        and len(args) == 1
+                        and args[0].type == "string"
+                        and local_reference(args[0].value)
+                    ):
+                        return True
+                elif resource_tokens(token.arguments, allow_local):
+                    return True
+            if getattr(token, "content", None) and resource_tokens(token.content, allow_local):
                 return True
         return False
 
     require(
         not resource_tokens(tinycss2.parse_component_value_list(css)),
         "Portable media export cannot include CSS resource URLs; use registered image elements.",
+        "external_dependency",
+    )
+    require(
+        not any(resource_tokens(tinycss2.parse_component_value_list(v), True) for v in svg_paint),
+        "Portable media export permits only local fragment URLs in SVG paint attributes.",
         "external_dependency",
     )

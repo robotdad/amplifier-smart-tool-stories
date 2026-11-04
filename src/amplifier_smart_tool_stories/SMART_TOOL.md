@@ -150,8 +150,18 @@ an edit invalidates the old review. Rendering is bounded to 40 seconds per attem
 within the operation deadline, with external/file resource fetching disabled.
 Persistent review failure retains an unaccepted candidate on the failed operation,
 not a selected revision. Imports keep semantic/visual review as not_performed.
+Review attempts retain exact candidate snapshots, including earlier candidates when
+a repair succeeds. Invalid reviewer submissions and observed call provenance remain
+inspectable. All stage submissions receive local schema validation; at most one
+schema correction per submission shares the existing operation allowance, and
+required artifact review is never skipped to make room for correction.
 Static WeasyPrint rendering approximates browser layout; model review is neither
 human approval nor independent factual verification. Generated outputs remain drafts.
+Composition review uses the applicable authoring constraints and judges content,
+asset references and static layout. It does not demand files or player code supplied
+by subsequent export/viewing stages, nor imply those stages have passed. Intentional
+speaker notes are excluded from visible-text coverage; actual display omissions and
+clipping remain failures.
 
 ## Capabilities
 
@@ -329,14 +339,27 @@ retains attribution/provenance and leaves the original intact. `revise-media` ac
 the complete desired asset_ids and optional replacement HTML; it creates an
 unreviewed, unaccepted revision rather than modifying the base.
 
-HTML export embeds referenced images unchanged. Video or captions require ZIP;
-ZIP contains index.html, assets/, manifest.json and extraction instructions. Extract
+HTML export embeds referenced images, MP4/WebM and WebVTT unchanged as data URIs.
+Video retains its existing audio; no synthesis or recompression occurs. ZIP remains
+the separate-media choice and contains index.html, assets/, manifest.json and extraction instructions. Extract
 and open index.html with assets/ alongside it. Static media packages reject source
 scripts, frames, external stylesheets and CSS resource URLs rather than claiming to
 bundle them. Images and video loaded in the local workspace have been browser-tested;
 file:// playback from an extracted package is not yet verified. Codec compatibility
 is browser-dependent. Imported scripted HTML without retained media exports unchanged,
 with unretained media references disclosed; ZIP refuses missing media.
+That imported-original path is not a portability or safety certification: it may
+retain scripts and external dependencies. Strict retained-media/generated exports
+support bounded static inline SVG geometry and local icons, not arbitrary SVG
+animation or external SVG resources. Explicit HTTP(S) evidence links are navigation,
+not bundled assets; executable URL schemes are rejected.
+HTML export writes no extra files: retrieve identical separate clips with get-media
+or from ZIP. Export results identify assets, media_size_bytes and
+embedded_media_size_bytes. HTML embedding has a 256 MiB raw referenced-media budget,
+counting repeated references; larger requests fail with a ZIP remedy. Source markup
+is parsed before embedding so embedded bytes do not consume its parsing budget.
+Playback, audio and caption synchronization require separate actual checks; no
+SharePoint compatibility is inferred.
 
 Operational budgets: 32 MiB markup parsing, 256 MiB per media asset, 40 million
 pixels per image, 100 attached assets, 64 MiB encoded images per static rendering.

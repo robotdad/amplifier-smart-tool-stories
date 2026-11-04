@@ -137,15 +137,17 @@ def video(tmp_path):
     return path
 
 
-def test_video_requires_package_and_retains_original(tmp_path, video):
+def test_video_embeds_or_packages_and_retains_original(tmp_path, video):
     api = Stories(tmp_path / "store")
     asset = api.import_media("Clip", "video/mp4", "clip", path=str(video))["asset"]
     assert asset["duration_seconds"] == pytest.approx(1)
     poster = ingest(api)
     html = f'<html><body><h1>Demo clip</h1><video controls src="asset:{asset["id"]}" poster="asset:{poster["id"]}"></video></body></html>'
     created = api.create_story("Demo", html, "create", asset_ids=[asset["id"], poster["id"]])
-    with pytest.raises(StoriesError, match="Choose ZIP"):
-        api.get_export(created["story_id"], created["revision_id"])
+    standalone = api.get_export(created["story_id"], created["revision_id"], "html")
+    assert b"data:video/mp4;base64," + base64.b64encode(video.read_bytes()) in base64.b64decode(
+        standalone["data_base64"]
+    )
     package = api.get_export(created["story_id"], created["revision_id"], "zip")
     original = video.read_bytes()
     video.unlink()

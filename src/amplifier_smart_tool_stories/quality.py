@@ -71,6 +71,7 @@ def record(html, rendered, verdict, provenance):
     require(isinstance(verdict, dict), "Missing structured review.", "invalid_review")
     report = {
         "artifact_sha256": digest(html),
+        "stage": "composition",
         "method": "model_review",
         "reviewer": provenance,
         "renderer": rendered.get("renderer", "WeasyPrint static 1280x720 / PDFium rasterization"),
@@ -79,7 +80,9 @@ def record(html, rendered, verdict, provenance):
             "Static rendering approximates browser layout.",
             "Video is represented by its poster; playback, audio and caption synchronization are not inspected.",
             "Model review is not human approval or independent factual verification.",
+            "Export packaging, separate deliverable files and player interactions are not inspected.",
         ],
+        "unperformed_checks": ["media_playback", "export", "player_interaction"],
     }
     for key in ("semantic", "visual"):
         part = verdict.get(key)
@@ -104,7 +107,7 @@ def record(html, rendered, verdict, provenance):
     if rendered["findings"]:
         report["visual"] = {
             "status": "failed",
-            "findings": rendered["findings"] + report["visual"]["findings"],
+            "findings": list(dict.fromkeys(rendered["findings"] + report["visual"]["findings"])),
         }
     warnings = verdict.get("warnings", [])
     require(

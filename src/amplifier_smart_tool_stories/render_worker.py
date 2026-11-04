@@ -26,6 +26,88 @@ def check_storyboard_render_bytes(size):
         )
 
 
+def expected_visible_text(html, stylesheets):
+    """Exclude nonvisual metadata, not arbitrary content hidden by faulty CSS.
+
+    Notes have explicit authoring semantics (.notes / data-speaker-notes). Only
+    their non-painted text is optional. Use the renderer's CSS cascade, including
+    media queries and inherited visibility, rather than guessing from inline CSS
+    or dropping every element that failed to produce a layout box.
+    """
+    from weasyprint.css import get_all_computed_styles
+
+    style_for = get_all_computed_styles(html, user_stylesheets=stylesheets)
+    texts = []
+
+    def visit(element, notes=False, suppressed=False):
+        classes = set(element.get("class", "").split())
+        if element.tag in {"style", "script", "template", "nav"} or classes.intersection(
+            {"navigation", "slide-counter", "nav-dots"}
+        ):
+            return
+        style = style_for(element)
+        notes = notes or "notes" in classes or "data-speaker-notes" in element.attrib
+        suppressed = suppressed or style["display"] == ("none",) or style["opacity"] == 0
+        include = not notes or (not suppressed and style["visibility"] == "visible")
+        if include and element.text:
+            texts.append(element.text)
+        for child in element:
+            if isinstance(child.tag, str):
+                visit(child, notes, suppressed)
+            if include and child.tail:
+                texts.append(child.tail)
+
+    body = html.etree_element.find("body")
+    root_style = style_for(html.etree_element)
+    visit(body, suppressed=root_style["display"] == ("none",) or root_style["opacity"] == 0)
+    return " ".join(text.strip() for text in texts if text.strip())
+
+
+def visible_text_boxes(box, transparent=False, clip=None, transformed=False):
+    """Yield text with its rectangular ancestor-overflow coverage finding.
+
+    Layout boxes survive overflow clipping. Intersect ancestor padding boxes
+    before counting text as rendered; partial text is not full word coverage.
+    This is a bounds check, not glyph/occlusion analysis. Transformed clipping
+    cannot be inferred from these untransformed coordinates.
+    """
+    transparent = transparent or box.style["opacity"] == 0
+    if transparent:
+        return
+    transformed = transformed or bool(box.style["transform"])
+    if getattr(box, "text", "").strip() and box.style["visibility"] == "visible":
+        finding = None
+        if clip is not None:
+            left, top, right, bottom = clip
+            x, y = box.position_x, box.position_y
+            end_x, end_y = x + box.width, y + box.height
+            if transformed:
+                finding = "overflow clipping unverified for transformed text"
+            elif right <= left or bottom <= top or end_x <= left or x >= right or end_y <= top or y >= bottom:
+                finding = "text fully clipped by ancestor overflow"
+            elif x < left - 1 or y < top - 1 or end_x > right + 1 or end_y > bottom + 1:
+                finding = "text partially clipped by ancestor overflow"
+        yield box, finding
+    # WeasyPrint clips content/children to the padding box, not the border or
+    # content box. Page clipping remains the separate canvas-bounds check.
+    if box.style["overflow"] != "visible" and box.element_tag is not None:
+        x, y = box.padding_box_x(), box.padding_box_y()
+        bounds = (x, y, x + box.padding_width(), y + box.padding_height())
+        clip = (
+            bounds
+            if clip is None
+            else (
+                max(clip[0], bounds[0]),
+                max(clip[1], bounds[1]),
+                min(clip[2], bounds[2]),
+                min(clip[3], bounds[3]),
+            )
+        )
+    # Include positioned placeholders, as descendants(placeholders=True) did.
+    for child in box.children:
+        yield from visible_text_boxes(child, transparent, clip, transformed)
+
+
 def render(html, include_pdf=False, media=None):
     import pypdfium2 as pdfium
     from weasyprint import CSS, HTML
@@ -54,11 +136,6 @@ def render(html, include_pdf=False, media=None):
     storyboard = bool(soup.select_one("article.stories-storyboard"))
     if len(slides) > 12:
         raise ValueError("Rendered review supports at most 12 slides.")
-    # Remove source styles from the expected text, not from the rendered document.
-    expected_soup = parse_html(clean)
-    for node in expected_soup.select("style,nav,.navigation,.slide-counter,.nav-dots"):
-        node.decompose()
-    expected = " ".join(expected_soup.body.stripped_strings)
     denied = []
 
     class NoFetch(URLFetcher):
@@ -82,20 +159,24 @@ def render(html, include_pdf=False, media=None):
         nav,.navigation,.slide-counter,.nav-dots { display:none!important; }
     """
     )
-    doc = HTML(
+    source = HTML(
         string=clean, url_fetcher=NoFetch(allowed_protocols=()), media_type="print" if document else "screen"
-    ).render(stylesheets=[] if document else [css])
+    )
+    stylesheets = [] if document else [css]
+    expected = expected_visible_text(source, stylesheets)
+    doc = source.render(stylesheets=stylesheets)
     # Storyboard length follows content, not a page/panel quota. Preserve the
     # unrelated document/deck budget; storyboard work is byte/time bounded.
     if not storyboard and len(doc.pages) > 12:
         raise ValueError("Rendered review exceeds 12 pages; shorten the story.")
     findings, rendered = [], []
     for i, page in enumerate(doc.pages):
-        for box in page._page_box.descendants(placeholders=True):
-            text = getattr(box, "text", "")
-            if not text.strip():
-                continue
-            rendered.append(text)
+        for box, clipping in visible_text_boxes(page._page_box):
+            text = box.text
+            if clipping:
+                findings.append(f"Page {i + 1}: {clipping}: {text[:80]}")
+            else:
+                rendered.append(text)
             if (
                 box.position_x < -1
                 or box.position_y < -1

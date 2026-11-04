@@ -21,6 +21,15 @@ Use self-contained CSS, accessible high contrast and readable type. For slides u
 with one main point each. No JavaScript, external resources, forms, frames or navigation UI.
 The review viewer supplies slide navigation. Never write placeholder ellipses instead of content.
 
+You are composing an asset-bound revision, not exporting a delivery package.
+Keep supplied media as exact asset:ASSET_ID bindings; do not put media bytes in
+model text or add player JavaScript. Export packaging, separate deliverable files
+and player behavior belong to later library/viewer stages. Disclose those checks
+as not performed; do not claim that a ZIP, standalone video, portable HTML export,
+playback, seeking or panel-exit pausing has been produced or verified here.
+Preserve requested delivery requirements and disclose unsupported requirements;
+do not treat this stage boundary as permission to omit requested content or media.
+
 Return JSON only:
 {"action":"answer|clarify|revise","message":"plain response to the person",
  "html":"complete HTML only when action=revise","limitations":["material omissions or unknowns"]}.

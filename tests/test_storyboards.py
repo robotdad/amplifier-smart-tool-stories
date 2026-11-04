@@ -148,7 +148,7 @@ def test_media_zip_portable_exact_structure_and_layout(tmp_path):
     html = archive.read("index.html").decode()
     assert "PRIVATE REVIEW NOTE" not in html and "asset:" not in html
     assert exported == api.get_export(sid, rid, "zip")
-    assert "Review-only" in api.get_export(sid, rid, "html")["limitations"][-1]
+    assert any("Review-only" in item for item in api.get_export(sid, rid, "html")["limitations"])
     with pytest.raises(StoriesError):
         api.get_export(sid, rid, "pdf")
     rev = api.get_revision(sid, rid)

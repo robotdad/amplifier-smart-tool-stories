@@ -96,7 +96,7 @@ def test_runtime_repairs_once_and_reviews_new_artifact(monkeypatch):
 
     revised = HTML.replace("qualified", "bounded")
     answers = [
-        {"evidence": [], "plan": "Be precise", "expertise": ["case-study"]},
+        {"evidence": [], "plan": "Be precise", "expertise": ["case-study"], "limitations": []},
         {
             "changes": {
                 "summary": "Requested change",
@@ -108,10 +108,12 @@ def test_runtime_repairs_once_and_reviews_new_artifact(monkeypatch):
             "action": "revise",
             "html": HTML,
             "message": "Draft",
+            "limitations": [],
         },
         {
             "semantic": {"status": "failed", "findings": ["Qualify result"]},
             "visual": {"status": "passed", "findings": []},
+            "warnings": [],
         },
         {
             "changes": {
@@ -124,8 +126,13 @@ def test_runtime_repairs_once_and_reviews_new_artifact(monkeypatch):
             "action": "revise",
             "html": revised,
             "message": "Revised",
+            "limitations": [],
         },
-        {"semantic": {"status": "passed", "findings": []}, "visual": {"status": "passed", "findings": []}},
+        {
+            "semantic": {"status": "passed", "findings": []},
+            "visual": {"status": "passed", "findings": []},
+            "warnings": [],
+        },
     ]
     payloads, rendered = [], []
 
@@ -188,7 +195,7 @@ def test_runtime_repairs_once_and_reviews_new_artifact(monkeypatch):
     # Persistent failure cannot trigger a second repair or produce an accepted artifact.
     answers.extend(
         [
-            {"evidence": [], "expertise": ["general"]},
+            {"evidence": [], "expertise": ["general"], "plan": "Be precise", "limitations": []},
             {
                 "changes": {
                     "summary": "Requested change",
@@ -200,10 +207,12 @@ def test_runtime_repairs_once_and_reviews_new_artifact(monkeypatch):
                 "action": "revise",
                 "html": HTML,
                 "message": "Draft",
+                "limitations": [],
             },
             {
                 "semantic": {"status": "failed", "findings": ["Unsupported"]},
                 "visual": {"status": "passed", "findings": []},
+                "warnings": [],
             },
             {
                 "changes": {
@@ -216,10 +225,12 @@ def test_runtime_repairs_once_and_reviews_new_artifact(monkeypatch):
                 "action": "revise",
                 "html": revised,
                 "message": "Repair",
+                "limitations": [],
             },
             {
                 "semantic": {"status": "failed", "findings": ["Still unsupported"]},
                 "visual": {"status": "passed", "findings": []},
+                "warnings": [],
             },
         ]
     )

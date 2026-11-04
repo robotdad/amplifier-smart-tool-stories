@@ -8,6 +8,10 @@ import io
 from .documents import inline_parts
 from .errors import require
 
+# Raw bytes across all embedded references (including repeated uses). Base64
+# expands this by roughly 4/3; markup retains its independent parsing budget.
+MAX_EMBEDDED_MEDIA_BYTES = 256 * 1024 * 1024
+
 
 def word(revision):
     from docx import Document
@@ -143,17 +147,30 @@ def artifact(revision, format, media_content=None):
     )
     limitations = []
     checks = {"structure": "passed", "visual": "not_performed"}
+    selected = []
+    embedded_media_size = 0
     if format in {"html", "zip"}:
         from .artifacts import parse_html
         from .media import EXTENSIONS, bindings
 
         assets = revision.get("assets", [])
-        if format == "zip" or assets:
+        soup = parse_html(revision["html"])
+        media_nodes = soup.select("img,video,audio,source,track")
+        # Imported originals without retained assets are a compatibility export,
+        # not a portable-package assertion. Generated and retained-media exports
+        # must still satisfy the strict boundary.
+        portable = format == "zip" or bool(assets) or revision.get("origin") == "model"
+        if portable:
             from .media import portable_markup
 
             portable_markup(revision["html"])
         content = media_content or {}
-        used, missing = bindings(revision["html"], assets, strict=format == "zip" or bool(assets))
+        used, missing = bindings(revision["html"], assets, strict=portable)
+        require(
+            not any(ref.startswith("asset:") for ref in missing),
+            "Media references must use retained asset:ASSET_ID values attached to this revision.",
+            "missing_asset",
+        )
         selected = [a for a in assets if a["id"] in used]
         for asset in selected:
             raw = content.get(asset["id"])
@@ -162,35 +179,55 @@ def artifact(revision, format, media_content=None):
                 "Required media is missing or changed.",
                 "missing_asset",
             )
-        require(
-            format != "html" or not any(not a["mime_type"].startswith("image/") for a in selected),
-            "This revision includes video or captions. Choose ZIP to deliver HTML with its media assets.",
-            "package_required",
-        )
-        markup = revision["html"]
+            require(
+                asset["mime_type"] in EXTENSIONS and len(raw) == asset["size_bytes"],
+                "Required media metadata is unsupported or changed.",
+                "invalid_media",
+            )
         paths = {a["id"]: "assets/" + a["id"] + "." + EXTENSIONS[a["mime_type"]] for a in selected}
+        by_id = {a["id"]: a for a in selected}
+        references = [
+            (node, attr, by_id[node[attr][6:]])
+            for node in media_nodes
+            for attr in ("src", "poster")
+            if node.get(attr, "").startswith("asset:") and node[attr][6:] in by_id
+        ]
+        for node, attr, asset in references:
+            if node.name == "source" and attr == "src" and node.get("type"):
+                require(
+                    node["type"].split(";", 1)[0].strip().lower() == asset["mime_type"],
+                    "Source type hint must match the retained media MIME type; correct the markup.",
+                    "invalid_media",
+                )
+        if format == "html":
+            embedded_media_size = sum(asset["size_bytes"] for _, _, asset in references)
+            require(
+                embedded_media_size <= MAX_EMBEDDED_MEDIA_BYTES,
+                "Single-file HTML exceeds the 256 MiB raw embedded-media budget (including repeated "
+                "references). Choose ZIP to preserve separate originals, or explicitly revise the media.",
+                "resource_limit",
+            )
         if selected:
-            soup = parse_html(markup)
-            for node in soup.select("img,video,source,track"):
-                for attr in ("src", "poster"):
-                    ref = node.get(attr, "")
-                    if ref.startswith("asset:") and ref[6:] in paths:
-                        asset = next(a for a in selected if a["id"] == ref[6:])
-                        node[attr] = (
-                            paths[asset["id"]]
-                            if format == "zip"
-                            else (
-                                "data:"
-                                + asset["mime_type"]
-                                + ";base64,"
-                                + base64.b64encode(content[asset["id"]]).decode()
-                            )
-                        )
-            markup = str(soup)
+            replacements = {
+                a["id"]: (
+                    paths[a["id"]]
+                    if format == "zip"
+                    else "data:" + a["mime_type"] + ";base64," + base64.b64encode(content[a["id"]]).decode()
+                )
+                for a in selected
+            }
+            for node, attr, asset in references:
+                node[attr] = replacements[asset["id"]]
         # Review navigation belongs to the dashboard; portable decks need their own player.
         # Imported scripted decks retain their existing presentation behavior.
-        soup = parse_html(markup)
-        if revision.get("kind") != "document" and soup.select(".slide") and not soup.find("script"):
+        # Do not reparse embedded bytes as markup: media has a separate resource budget.
+        changed = bool(selected)
+        if (
+            revision.get("kind") != "document"
+            and soup.select(".slide")
+            and not soup.find("script")
+            and (portable or not media_nodes)
+        ):
             from importlib.resources import files
 
             player = soup.new_tag("script")
@@ -199,9 +236,16 @@ def artifact(revision, format, media_content=None):
                 files("amplifier_smart_tool_stories").joinpath("resources/presentation.js").read_text()
             )
             (soup.body or soup).append(player)
-            markup = str(soup)
+            changed = True
+        markup = str(soup) if changed else revision["html"]
         data, mime = markup.encode(), "text/html"
         checks = {**revision["review"], "media_playback": "not_performed"}
+        if not portable:
+            limitations.append(
+                "Imported HTML without retained assets is not validated as a portable package. "
+                "Original scripts and dependencies may remain; safety, offline operation and "
+                "playback are not certified."
+            )
         if missing:
             limitations.append(
                 "Imported HTML has unretained media references; external files are not packaged."
@@ -258,7 +302,8 @@ def artifact(revision, format, media_content=None):
             data, mime = output.getvalue(), "application/zip"
         if selected:
             limitations.append(
-                "Static layout review does not certify video playback or audio. Browser codec support varies."
+                "Static layout review does not certify video playback, audio or caption synchronization. "
+                "Browser codec and caption support varies."
             )
         if revision.get("kind") == "storyboard" and format == "html":
             limitations.append(
@@ -298,6 +343,17 @@ def artifact(revision, format, media_content=None):
             limitations = [
                 "Letter PDF from the retained HTML. Browser pagination is approximate; inspect the PDF before delivery."
             ]
+    # Carry source caveats across every format, without turning prior model
+    # observations into claims that export verified content or playback.
+    source_qualifications = [
+        "Source revision limitation (not an export check): " + value
+        for value in revision.get("limitations", [])
+    ]
+    quality = revision.get("quality_review", {})
+    for key, label in (("warnings", "warning"), ("limits", "scope limit")):
+        source_qualifications.extend(
+            f"Source model review {label} (not an export check): " + value for value in quality.get(key, [])
+        )
     return {
         "revision_id": revision["id"],
         "format": format,
@@ -308,6 +364,9 @@ def artifact(revision, format, media_content=None):
         "size_bytes": len(data),
         "delivery_sha256": revision.get("delivery_sha256", revision["sha256"]),
         "media_warnings": revision.get("media_warnings", []),
+        "assets": selected,
+        "media_size_bytes": sum(a["size_bytes"] for a in selected),
+        "embedded_media_size_bytes": embedded_media_size,
         "checks": checks,
-        "limitations": limitations,
+        "limitations": source_qualifications + limitations,
     }

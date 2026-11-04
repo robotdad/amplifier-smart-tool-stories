@@ -678,8 +678,12 @@ class Stories(
             with self.store.transaction() as db:
                 current = self.store.get(db, "operations", operation_id)
                 if current["state"] != "running":
-                    current.update(cleanup="complete", finished_at=now())
-                    self.store.put(db, "operations", current)
+                    if current["state"] == "cancelled":
+                        # A returned submission is diagnostic only once cancellation
+                        # wins the transaction. Never publish it as a revision/result.
+                        current.setdefault("candidate", result)
+                        current.update(cleanup="complete", finished_at=now())
+                        self.store.put(db, "operations", current)
                     return current
                 require(
                     now() <= op["deadline"], "Operation exhausted its time allowance.", "execution_timeout"
@@ -838,6 +842,10 @@ class Stories(
                     self.store.put(db, "stories", story)
                     self.store.event(db, op["story_id"], "operation_failed", operation_id=operation_id)
                 elif current["state"] == "cancelled":
+                    if hasattr(exc, "candidate"):
+                        # Keep observed call statuses intact, including in-flight
+                        # calls; retained diagnostics grant no execution authority.
+                        current.setdefault("candidate", exc.candidate)
                     current.update(cleanup="complete", finished_at=now())
                     self.store.put(db, "operations", current)
                 return current
@@ -858,7 +866,7 @@ class Stories(
         }
 
     def get_export(self, story_id, revision_id, format="html"):
-        """Get HTML with embedded images, a portable ZIP, or document PDF/Word as base64 with delivery identity."""
+        """Get HTML with embedded retained images/video/captions, a separate-media ZIP, or document PDF/Word as base64 with delivery identity."""
         from .exports import artifact
 
         revision = self.get_revision(story_id, revision_id)

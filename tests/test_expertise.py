@@ -29,7 +29,7 @@ def test_invalid_routing_never_loads_arbitrary_resources(selection):
     assert exc.value.code == "invalid_model_result"
 
 
-def test_invalid_document_gets_one_structural_repair_then_real_review(monkeypatch):
+def test_invalid_document_gets_one_schema_correction_then_real_review(monkeypatch):
     import copy
     import json
     import time
@@ -48,6 +48,7 @@ def test_invalid_document_gets_one_structural_repair_then_real_review(monkeypatc
                 "items": [],
                 "rows": [],
                 "evidence_ids": [],
+                "marks": [],
             }
         ],
     }
@@ -70,7 +71,7 @@ def test_invalid_document_gets_one_structural_repair_then_real_review(monkeypatc
         return SimpleNamespace(create_session=session)
 
     answers = [
-        {"evidence": [], "expertise": ["technical"], "plan": "Explain"},
+        {"evidence": [], "expertise": ["technical"], "plan": "Explain", "limitations": []},
         {
             "changes": {
                 "summary": "Requested change",
@@ -82,6 +83,7 @@ def test_invalid_document_gets_one_structural_repair_then_real_review(monkeypatc
             "action": "revise",
             "message": "Draft",
             "document": invalid,
+            "limitations": [],
         },
         {
             "changes": {
@@ -94,8 +96,13 @@ def test_invalid_document_gets_one_structural_repair_then_real_review(monkeypatc
             "action": "revise",
             "message": "Repaired",
             "document": valid,
+            "limitations": [],
         },
-        {"semantic": {"status": "passed", "findings": []}, "visual": {"status": "passed", "findings": []}},
+        {
+            "semantic": {"status": "passed", "findings": []},
+            "visual": {"status": "passed", "findings": []},
+            "warnings": [],
+        },
     ]
     prompts = []
 
@@ -139,14 +146,18 @@ def test_invalid_document_gets_one_structural_repair_then_real_review(monkeypatc
     }
     result = intelligence.execute(story, operation, lambda: False)
     assert result["quality_review"]["passed"]
-    assert result["review_attempts"][0]["stage"] == "document_structure"
-    assert result["review_attempts"][0]["visual"] == "not_performed"
+    assert len(result["review_attempts"]) == 1
+    assert result["provenance"]["invalid_submissions"][0]["submission"]["document"] == invalid
+    assert (
+        "'rows' is a required property"
+        in result["provenance"]["invalid_submissions"][0]["validation_errors"][0]
+    )
     assert result["provenance"]["model_calls"] == 4
-    assert "single repair allowance" in prompts[2]
+    assert "Correct only the reported submission errors" in prompts[2]
     assert not answers
     answers.extend(
         [
-            {"evidence": [], "expertise": ["technical"], "plan": "Explain"},
+            {"evidence": [], "expertise": ["technical"], "plan": "Explain", "limitations": []},
             {
                 "changes": {
                     "summary": "Requested change",
@@ -158,6 +169,7 @@ def test_invalid_document_gets_one_structural_repair_then_real_review(monkeypatc
                 "action": "revise",
                 "message": "Draft",
                 "document": invalid,
+                "limitations": [],
             },
             {
                 "changes": {
@@ -170,6 +182,7 @@ def test_invalid_document_gets_one_structural_repair_then_real_review(monkeypatc
                 "action": "revise",
                 "message": "Still invalid",
                 "document": invalid,
+                "limitations": [],
             },
         ]
     )

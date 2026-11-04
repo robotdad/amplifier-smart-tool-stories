@@ -132,14 +132,24 @@ minimum type size, page counts and blocked resource dependencies. A model cannot
 override mechanical failures. Each review records the artifact hash, rendered image
 hashes, provider/model, findings and limits. Review is performed again after a repair.
 
+Composition review receives the applicable authoring constraints. It evaluates the
+candidate's content, asset references and static layout, not whether a later export
+has already written files or supplied the standalone player. Export and playback
+remain separate checks, not implicit passes. Intentional speaker notes do not count
+as missing visible slide text; genuine display-text omissions/clipping still fail.
+
 The renderer runs in a cancellable subprocess, at most 40 seconds per attempt, and
 cannot fetch external or local resources. It supports at most 12 static pages on a
 1280x720 presentation canvas or Letter document pages. It approximates browser layout; it does not certify every viewport.
 Model review is labeled as such and is not independent verification or human approval.
 The selected model must support native tool submissions and image input for artifact
 review. Text-only models can still answer comments but cannot complete artifact production.
-If the repair still fails, the operation retains `candidate.html` and `candidate.reviews`
-for inspection without committing a revision. Imported artifacts remain unreviewed.
+Failed operations retain the available candidate, exact reviewed attempts and observed
+call provenance without committing a revision. Successful repairs also retain the
+earlier candidate snapshots in `review_attempts`. Invalid reviewer submissions remain
+inspectable as failures, not accepted verdicts. Every stage's structured submission
+is validated locally; a schema correction shares the existing call/time allowance
+and cannot replace required artifact review. Imported artifacts remain unreviewed.
 
 ## Export and cleanup
 
@@ -324,6 +334,7 @@ html = f'''<html><body><section class="slide"><h1>Demo</h1>
 <p>Supplied demonstration.</p></section></body></html>'''
 created = api.create_story("Demo", html, "demo-1", asset_ids=[image_id, video_id])
 api.export(created["story_id"], created["revision_id"], "/chosen/demo.zip", format="zip")
+api.export(created["story_id"], created["revision_id"], "/chosen/demo.html", format="html")
 ```
 
 The CLI accepts the same fields as JSON; read each command's help. `generate` accepts
@@ -337,9 +348,16 @@ choose ZIP to avoid embedding, or explicitly request `resize_media(asset_id,
 max_width, max_height, request_id)` and use its new identity in `revise_media` with
 updated HTML. The original remains retained. Exported ZIP assets are byte-for-byte
 originals unless the revision explicitly references a derivative. Single HTML embeds
-images; video/captions require ZIP. The package uses relative paths and includes
-extraction instructions. Browser file:// playback verification remains outstanding;
-review-workspace playback and package contents have separate checks.
+referenced images, MP4/WebM video (including its existing audio), and WebVTT captions
+as exact-byte data URIs. ZIP retains relative paths and extraction instructions.
+HTML embedding allows 256 MiB of raw referenced media, counting repeated references;
+this is separate from the 32 MiB source-markup parsing budget. Larger embedding
+requests fail with a ZIP remedy, never a silent format change or recompression.
+Results identify assets, `media_size_bytes` and `embedded_media_size_bytes`.
+HTML export writes only the requested HTML; use `get_media` or ZIP to retain a
+separately named original MP4. Static review does not establish playback, audio or
+caption synchronization. Check the exported file in its intended browser/delivery
+surface; local playback does not establish SharePoint compatibility.
 
 Use `get_media(story_id, revision_id, asset_id)` to retrieve exact bytes as base64.
 Asset replacement creates a new delivery hash and revision; old acceptance and checks
