@@ -10,7 +10,7 @@ resolution-markers = [
 [[package]]
 name = "amplifier-agent"
 version = "0.17.0"
-source = { git = "https://github.com/microsoft/amplifier-agent?rev=main#44a83adeb49fc1cfb55eb0c1bf38aa125ff0d705" }
+source = { git = "https://github.com/microsoft/amplifier-agent?rev=44a83adeb49fc1cfb55eb0c1bf38aa125ff0d705#44a83adeb49fc1cfb55eb0c1bf38aa125ff0d705" }
 dependencies = [
     { name = "amplifier-foundation" },
     { name = "click" },
@@ -82,7 +82,7 @@ mcp = [
 
 [package.metadata]
 requires-dist = [
-    { name = "amplifier-agent", git = "https://github.com/microsoft/amplifier-agent?rev=main" },
+    { name = "amplifier-agent", git = "https://github.com/microsoft/amplifier-agent?rev=44a83adeb49fc1cfb55eb0c1bf38aa125ff0d705" },
     { name = "anthropic", specifier = ">=1.4" },
     { name = "beautifulsoup4", specifier = ">=4.12" },
     { name = "google-genai", specifier = ">=1" },

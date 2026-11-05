@@ -16,9 +16,11 @@ uv run ruff format --check src tests
 
 Python 3.12+ and Pango are required for artifact/rendering tests (on macOS,
 `brew install pango`). No browser download or LibreOffice is required. The
-Amplifier Agent dependency tracks main; `uv.lock` records the tested development
-revision. Advance it deliberately with `uv lock --upgrade-package amplifier-agent`
-and validate compatibility. New Git installs resolve main.
+Amplifier Agent dependency pins the supported revision in `pyproject.toml`;
+`uv.lock` records the same revision. Advance the declaration and lock together,
+then validate installation and runtime compatibility. Agent 0.23 uses a different
+package layout and API; moving to it requires an explicit migration rather than
+resolving its moving main branch during installation.
 
 ## Code structure
 

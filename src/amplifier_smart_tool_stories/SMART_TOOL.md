@@ -44,9 +44,10 @@ remain deferred.
 `uv tool install 'amplifier-smart-tool-stories @ git+https://github.com/robotdad/amplifier-smart-tool-stories'`
 
 Python 3.12+. Deterministic operations require no provider. Smart operations use
-embedded amplifier-agent from main. The development lockfile records a tested
-revision; new Git installs resolve the current main. No Amplifier CLI session or
-Anthropic skills checkout is needed.
+embedded amplifier-agent pinned to the supported revision in the package declaration
+and development lockfile. New Git installs use that same Agent runtime baseline;
+adopting a newer Agent API requires explicit compatibility validation. No Amplifier
+CLI session or Anthropic skills checkout is needed.
 
 Before model use, explicitly prepare each selected provider's runtime:
 `stories --model-env --provider openai prepare-runtime`. Preparation may fetch/install Amplifier

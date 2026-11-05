@@ -5,7 +5,7 @@ description = "Evidence-based HTML stories with shared agent and human review."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-  "amplifier-agent @ git+https://github.com/microsoft/amplifier-agent@main",
+  "amplifier-agent @ git+https://github.com/microsoft/amplifier-agent@44a83adeb49fc1cfb55eb0c1bf38aa125ff0d705",
   "openai>=1",
   "anthropic>=1.4",
   "google-genai>=1",

@@ -78,7 +78,9 @@ formats; public help and manifests describe only supported, validated behavior.
   examples and the first capability contract establish their compatibility needs.
 - Supported platforms and independently verified provider authentication paths —
   the initial adapter supports OpenAI, ChatGPT, Copilot, Anthropic and Gemini.
-  amplifier-agent tracks main; the development lock records the tested revision.
+  amplifier-agent is pinned to a supported immutable revision in the package
+  declaration and development lock. New Git installs use that same runtime API
+  baseline; adopting a newer Agent API requires explicit compatibility validation.
 - Remote services and adapters beyond the optional [MCP review adapter](mcp-app.v1.md).
   The stdio/MCP Apps adapter preserves public library semantics and compiles the
   native review frontend rather than maintaining a reduced second UI. Provider
